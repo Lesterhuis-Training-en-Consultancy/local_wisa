@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<XMLDB PATH="local/wisa/db" VERSION="20231121" COMMENT="XMLDB file for local_wisa plugin"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="../../../lib/xmldb/xmldb.xsd"
+>
+  <TABLES>
+    <TABLE NAME="local_wisa_log" COMMENT="Logs for WISA synchronization">
+      <FIELDS>
+        <FIELD NAME="id" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="true"/>
+        <FIELD NAME="timecreated" TYPE="int" LENGTH="10" NOTNULL="true" SEQUENCE="false"/>
+        <FIELD NAME="action" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="create, update, delete, etc."/>
+        <FIELD NAME="objecttype" TYPE="char" LENGTH="20" NOTNULL="true" SEQUENCE="false" COMMENT="user, course, enrollment"/>
+        <FIELD NAME="objectid" TYPE="char" LENGTH="100" NOTNULL="false" SEQUENCE="false" COMMENT="ID of the object (WISA ID or Moodle ID)"/>
+        <FIELD NAME="status" TYPE="char" LENGTH="10" NOTNULL="true" SEQUENCE="false" COMMENT="success, fail"/>
+        <FIELD NAME="message" TYPE="text" NOTNULL="false" SEQUENCE="false"/>
+      </FIELDS>
+      <KEYS>
+        <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
+      </KEYS>
+      <INDEXES>
+        <INDEX NAME="timecreated" UNIQUE="false" FIELDS="timecreated"/>
+        <INDEX NAME="action" UNIQUE="false" FIELDS="action"/>
+      </INDEXES>
+    </TABLE>
+  </TABLES>
+</XMLDB>
