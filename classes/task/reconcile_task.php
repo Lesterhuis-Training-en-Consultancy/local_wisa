@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Scheduled delta synchronisation task.
+ * Nightly full reconciliation task.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
@@ -28,18 +28,27 @@ defined('MOODLE_INTERNAL') || die();
 
 use local_wisa\sync_manager;
 
-class sync_task extends \core\task\scheduled_task {
+/**
+ * Runs a full (since-1900) sync once a night as a safety net for changes the delta
+ * watermark could miss (e.g. a failed earlier run, or records WISA changed without a
+ * detectable delta). Disabled by default; switch it on with the enable_reconcile
+ * setting once the regular delta sync has been validated.
+ */
+class reconcile_task extends \core\task\scheduled_task {
     public function get_name() {
-        return get_string('task_sync', 'local_wisa');
+        return get_string('task_reconcile', 'local_wisa');
     }
 
     public function execute() {
         if (get_config('local_wisa', 'initial_load_done') !== '1') {
-            mtrace('local_wisa: initial full load not yet approved; skipping scheduled sync. '
-                . 'Approve it on the WISA preview page first.');
+            mtrace('local_wisa: initial full load not yet approved; skipping reconciliation.');
             return;
         }
-        $manager = new sync_manager();
-        $manager->run_full_sync();
+        if (get_config('local_wisa', 'enable_reconcile') !== '1') {
+            mtrace('local_wisa: nightly reconciliation is disabled; skipped.');
+            return;
+        }
+        mtrace('local_wisa: starting nightly full reconciliation (forcefull).');
+        (new sync_manager())->run_full_sync(true);
     }
 }

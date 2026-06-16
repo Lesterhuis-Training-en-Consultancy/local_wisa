@@ -15,34 +15,26 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Database logger for local_wisa.
+ * Upgrade steps for local_wisa.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
  * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
  */
 
-namespace local_wisa;
-
 defined('MOODLE_INTERNAL') || die();
 
-class logger {
-    public static function log($action, $objecttype, $objectid, $status, $message = '') {
-        global $DB;
-
-        $record = new \stdClass();
-        $record->timecreated = time();
-        $record->action = substr($action, 0, 20);
-        $record->objecttype = substr($objecttype, 0, 20);
-        $record->objectid = substr($objectid, 0, 100);
-        $record->status = substr($status, 0, 10);
-        $record->message = $message;
-
-        try {
-            $DB->insert_record('local_wisa_log', $record);
-        } catch (\Exception $e) {
-            // Fallback logging if DB fails
-            error_log("WISA Plugin Logging Failed: " . $e->getMessage());
-        }
-    }
+/**
+ * Run the local_wisa upgrade steps.
+ *
+ * The only database object is local_wisa_log, created by install.xml and unchanged
+ * since the initial release, so there are no steps yet. Add future schema changes
+ * here, each guarded by an $oldversion check and closed with upgrade_plugin_savepoint().
+ *
+ * @param int $oldversion the version we are upgrading from
+ * @return bool
+ */
+function xmldb_local_wisa_upgrade($oldversion) {
+    // No upgrade steps required yet.
+    return true;
 }
