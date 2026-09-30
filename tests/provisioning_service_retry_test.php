@@ -153,6 +153,7 @@ final class provisioning_service_retry_test extends provisioning_service_test_ca
     public function test_retry_blocks_exact_task_and_replaces_mismatched_task_identity(): void {
         global $DB;
 
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $context = $this->create_context();
         $service = new provisioning_service();

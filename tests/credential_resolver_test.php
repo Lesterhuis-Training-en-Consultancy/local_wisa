@@ -220,6 +220,8 @@ final class credential_resolver_test extends \advanced_testcase {
      * @return void
      */
     public function test_failed_persistence_rolls_back_every_credential_and_returns_false(): void {
+        // PostgreSQL wraps tests in a transaction; Moodle's nested rollback aborts that outer transaction too.
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $component = 'sissource_wisa';
         set_config('api_user', 'legacy-user', $component);

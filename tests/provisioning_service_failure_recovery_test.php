@@ -115,6 +115,7 @@ final class provisioning_service_failure_recovery_test extends provisioning_serv
     public function test_mapped_finalization_failure_rolls_back_pointer_identity_and_terminal_state(): void {
         global $DB;
 
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $context = $this->create_context();
         set_config('templatemap', json_encode(['template-one' => (int)$context['template']->id]), 'local_wisa');
@@ -158,6 +159,7 @@ final class provisioning_service_failure_recovery_test extends provisioning_serv
     public function test_fallback_failure_after_creation_rolls_back_course_proof_pointer_and_terminal_state(): void {
         global $DB;
 
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $context = $this->create_context();
         $record = $this->queue_record(

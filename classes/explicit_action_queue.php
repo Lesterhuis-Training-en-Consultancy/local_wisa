@@ -76,6 +76,18 @@ class explicit_action_queue {
             'stream' => $stream,
             'phase' => $phase,
         ]);
+        // Core's queued-task customdata comparison is not reliable on every supported DB/version.
+        // Check the exact tuple and requester before queuing, without collapsing distinct streams.
+        foreach (\core\task\manager::get_adhoc_tasks(\local_wisa\task\connection_test_task::class) as $existing) {
+            $data = $existing->get_custom_data();
+            if (
+                (int)$existing->get_userid() === $userid && is_object($data)
+                    && isset($data->component, $data->stream, $data->phase)
+                    && $data->component === $component && $data->stream === $stream && $data->phase === $phase
+            ) {
+                return false;
+            }
+        }
         $queued = (bool)\core\task\manager::queue_adhoc_task($task, true);
         if ($queued) {
             set_config('last_connection_test_status', 'queued', 'local_wisa');

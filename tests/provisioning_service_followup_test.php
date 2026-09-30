@@ -43,6 +43,7 @@ final class provisioning_service_followup_test extends provisioning_service_test
      * @return void
      */
     public function test_followup_publication_rolls_back_task_and_marker_then_reconciles_once(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $context = $this->create_context();
         $record = $this->create_terminal_record($context, 'FOLLOWUP-ROLLBACK');

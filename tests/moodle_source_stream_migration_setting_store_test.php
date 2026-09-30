@@ -42,6 +42,8 @@ final class moodle_source_stream_migration_setting_store_test extends \advanced_
      * @return void
      */
     public function test_transaction_reads_do_not_cache_rolled_back_values_and_commits_remain_visible(): void {
+        // The store needs a real top-level rollback, not a delegated rollback inside PHPUnit's transaction.
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $component = 'local_wisa';
         $setting = 'source_stream_migration_setting_store_test';

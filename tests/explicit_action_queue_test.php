@@ -213,9 +213,20 @@ final class explicit_action_queue_test extends \advanced_testcase {
             'sissource_wisa',
             'teacher_accounts'
         ));
+        $otheruser = self::getDataGenerator()->create_user();
+        $this->assertTrue(explicit_action_queue::queue_connection_test(
+            (int)$otheruser->id,
+            'sissource_wisa',
+            'student_accounts'
+        ));
+        $this->assertFalse(explicit_action_queue::queue_connection_test(
+            (int)$otheruser->id,
+            'sissource_wisa',
+            'student_accounts'
+        ));
 
         $tasks = \core\task\manager::get_adhoc_tasks(\local_wisa\task\connection_test_task::class);
-        $this->assertCount(2, $tasks);
+        $this->assertCount(3, $tasks);
     }
 
     /**
