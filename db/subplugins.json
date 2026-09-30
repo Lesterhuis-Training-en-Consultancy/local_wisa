@@ -1,0 +1,8 @@
+{
+  "subplugintypes": {
+    "sissource": "source"
+  },
+  "plugintypes": {
+    "sissource": "local/wisa/source"
+  }
+}

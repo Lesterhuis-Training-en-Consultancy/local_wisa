@@ -19,26 +19,33 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\task;
 
-defined('MOODLE_INTERNAL') || die();
 
 use local_wisa\sync_manager;
 
 /**
  * Runs a full (since-1900) sync once a night as a safety net for changes the delta
- * watermark could miss (e.g. a failed earlier run, or records WISA changed without a
+ * watermark could miss (e.g. a failed earlier run, or records changed without a
  * detectable delta). Disabled by default; switch it on with the enable_reconcile
  * setting once the regular delta sync has been validated.
  */
 class reconcile_task extends \core\task\scheduled_task {
+    /**
+     * Return the scheduled task name.
+     *
+     * @return string
+     */
     public function get_name() {
         return get_string('task_reconcile', 'local_wisa');
     }
 
+    /**
+     * Execute the nightly reconciliation task.
+     */
     public function execute() {
         if (get_config('local_wisa', 'initial_load_done') !== '1') {
             mtrace('local_wisa: initial full load not yet approved; skipping reconciliation.');

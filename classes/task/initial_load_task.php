@@ -19,14 +19,10 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\task;
-
-defined('MOODLE_INTERNAL') || die();
-
-use local_wisa\sync_manager;
 
 /**
  * One-shot background task queued from the preview/approval page when an admin
@@ -34,21 +30,38 @@ use local_wisa\sync_manager;
  * in the web request) means a large initial load cannot hit the web-server
  * timeout. sync_manager::run_full_sync() opens the gate (initial_load_done) itself
  * on a successful live run, so from then on the scheduled delta sync takes over.
+ *
+ * @package    local_wisa
+ * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class initial_load_task extends \core\task\adhoc_task {
-    public function get_name() {
+    /**
+     * Return the adhoc task name.
+     *
+     * @return string
+     */
+    public function get_name(): string {
         return get_string('task_initial_load', 'local_wisa');
     }
 
-    public function execute() {
+    /**
+     * Execute the approved first full load.
+     *
+     * @return void
+     */
+    public function execute(): void {
+        $data = $this->get_custom_data();
+        $jobid = is_object($data) && isset($data->jobid) ? (string)$data->jobid : '';
         try {
             mtrace('local_wisa: starting approved first full load in the background...');
-            (new sync_manager())->run_full_sync(true, true);
-            mtrace('local_wisa: first full load finished.');
+            if ((new \local_wisa\sync_manager())->run_full_sync(true, true)) {
+                mtrace('local_wisa: first full load finished.');
+            } else {
+                mtrace('local_wisa: first full load did not complete; initial-load gate remains closed.');
+            }
         } finally {
-            // Clear the "queued" flag whatever happens, so the preview page does not
-            // keep showing "load running" after a crash or fatal error.
-            set_config('initial_load_queued', 0, 'local_wisa');
+            \local_wisa\explicit_action_queue::complete_initial_load($jobid);
         }
     }
 }

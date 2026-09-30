@@ -19,18 +19,27 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\task;
 
-defined('MOODLE_INTERNAL') || die();
-
+/**
+ * Deletes old local_wisa log records.
+ */
 class log_cleanup_task extends \core\task\scheduled_task {
+    /**
+     * Return the scheduled task name.
+     *
+     * @return string
+     */
     public function get_name() {
         return get_string('task_log_cleanup', 'local_wisa');
     }
 
+    /**
+     * Execute the log cleanup task.
+     */
     public function execute() {
         global $DB;
         $days = (int)get_config('local_wisa', 'log_retention_days');

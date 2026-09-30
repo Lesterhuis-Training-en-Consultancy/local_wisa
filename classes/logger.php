@@ -19,14 +19,25 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
 
+/**
+ * Writes local_wisa audit rows to the plugin log table.
+ */
 class logger {
+    /**
+     * Insert a log row for a sync or API action.
+     *
+     * @param string $action Action name.
+     * @param string $objecttype Object type.
+     * @param string $objectid Object identifier.
+     * @param string $status Log status.
+     * @param string $message Log message.
+     */
     public static function log($action, $objecttype, $objectid, $status, $message = '') {
         global $DB;
 
@@ -41,8 +52,8 @@ class logger {
         try {
             $DB->insert_record('local_wisa_log', $record);
         } catch (\Exception $e) {
-            // Fallback logging if DB fails
-            error_log("WISA Plugin Logging Failed: " . $e->getMessage());
+            // Fallback logging if the database insert fails.
+            debugging('local_wisa logging failed: ' . $e->getMessage(), DEBUG_DEVELOPER);
         }
     }
 }

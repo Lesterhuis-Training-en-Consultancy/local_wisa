@@ -15,301 +15,293 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Orchestrates a WISA synchronisation run.
+ * Orchestrates source-stream synchronisation runs.
  *
  * @package    local_wisa
- * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 use local_wisa\sync\course_sync;
-use local_wisa\sync\user_sync;
 use local_wisa\sync\enrollment_sync;
 use local_wisa\sync\unenrollment_sync;
+use local_wisa\sync\user_sync;
 
+/**
+ * Coordinates source-stream retrieval, tuple processing, and state persistence.
+ *
+ * @package    local_wisa
+ * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 class sync_manager {
-    private $api;
+    /** @var source_interface SIS stream adapter. */
+    private $source;
+
+    /** @var string Source component for tuple state. */
+    private $sourcecomponent;
+
+    /** @var bool Whether Moodle mutations and tuple writes are disabled. */
     private $dryrun;
 
-    public function __construct() {
-        $this->api = new api_client();
+    /** @var mixed Optional lock factory test seam. */
+    private $lockfactory;
+
+    /** @var source_stream_state Tuple-scoped state store. */
+    private $state;
+
+    /** @var string|null Outcome from the current run. */
+    private $runstatus;
+
+    /**
+     * Construct one stream synchronisation run.
+     *
+     * @param source_interface|null $source Source adapter or test double.
+     * @param mixed $lockfactory Lock factory test seam.
+     * @param string|null $sourcecomponent Explicit source component for a pinned run.
+     * @return void
+     */
+    public function __construct(?source_interface $source = null, $lockfactory = null, ?string $sourcecomponent = null) {
+        $this->source = $source ?: source_factory::get_active_source();
+        $this->sourcecomponent = $sourcecomponent ?? source_factory::get_component_for_source($this->source);
+        if (preg_match('/^sissource_[a-z][a-z0-9_]*$/', $this->sourcecomponent) !== 1) {
+            throw new \coding_exception('Invalid SIS source component: ' . $this->sourcecomponent);
+        }
+        $this->lockfactory = $lockfactory;
         $this->dryrun = (bool)get_config('local_wisa', 'dry_run');
+        $this->state = new source_stream_state($this->sourcecomponent, $this->dryrun);
     }
 
-    public function run_full_sync($forcefull = false, $forcelive = false) {
-        // The approval page / CLI --approve pass $forcelive to run the first real
-        // load regardless of the dry-run setting.
+    /**
+     * Run every enabled source-stream tuple in generic phase and registry order.
+     *
+     * @param bool $forcefull Whether delta lower bounds are disabled.
+     * @param bool $forcelive Whether an approved initial load bypasses dry-run.
+     * @return bool Whether every requested tuple completed successfully.
+     */
+    public function run_full_sync(bool $forcefull = false, bool $forcelive = false): bool {
+        $this->runstatus = null;
         if ($forcelive) {
             $this->dryrun = false;
+            $this->state = new source_stream_state($this->sourcecomponent, false);
         }
-        $factory = \core\lock\lock_config::get_lock_factory('local_wisa');
+        $factory = $this->lockfactory ?: \core\lock\lock_config::get_lock_factory('local_wisa');
         $lock = $factory->get_lock('full_sync', 0);
         if (!$lock) {
-            logger::log('sync_skip', 'system', 'lock', 'warn',
-                'Another WISA sync is already running, skipped this run.');
-            return;
+            $this->runstatus = 'failed';
+            event_logger::sync_skipped($this->source_name(), 'lock_unavailable');
+            return false;
         }
 
+        $window = schoolyear_window::calculate();
+        $start = microtime(true);
+        $runstart = time();
+        $stats = new sync_stats();
+        $successful = 0;
+        $failed = 0;
         try {
-            // Volledige eerste load (MCVOD_INS/UIT) kan veel geheugen vragen.
             raise_memory_limit(MEMORY_HUGE);
-            $stats = new sync_stats();
-            $start = microtime(true);
-            $runstart = time();
-            $mode = $this->dryrun ? 'DRY-RUN' : 'LIVE';
-            $window = $this->schoolyear_window();
-
-            logger::log('sync_start', 'system', 'all', 'info',
-                "Starting synchronization ($mode), schooljaar=" . $this->window_label($window) . '.');
-
-            // Elke fase apart in/uit te schakelen, met een eigen delta-watermark. De
-            // watermark schuift alleen door wanneer run() succes meldt (de fetch is
-            // gelukt); zo worden records van een mislukte fase niet permanent gemist.
-            if ($this->enabled('courses')) {
-                $this->api->set_sinds($this->fase_sinds('courses', $forcefull));
-                if ((new course_sync($this->api, $this->dryrun, $stats, $window))->run()) {
-                    $this->advance_watermark('courses', $runstart);
-                }
-            }
-            if ($this->enabled('students')) {
-                $this->api->set_sinds($this->fase_sinds('students', $forcefull));
-                if ((new user_sync($this->api, $this->dryrun, $stats))->run('students')) {
-                    $this->advance_watermark('students', $runstart);
-                }
-            }
-            if ($this->enabled('teachers')) {
-                $this->api->set_sinds($this->fase_sinds('teachers', $forcefull));
-                if ((new user_sync($this->api, $this->dryrun, $stats))->run('teachers')) {
-                    $this->advance_watermark('teachers', $runstart);
-                }
-            }
-            if ($this->enabled('enrolments')) {
-                $dot = get_config('local_wisa', 'enrol_teachers') !== '0';
-                $dos = get_config('local_wisa', 'enrol_students') !== '0';
-                if ($dot || $dos) {
-                    // Eén feed (MCVOD_INS), maar leraar- en cursist-inschrijvingen hebben elk een
-                    // eigen watermark. Haal op vanaf de oudste ingeschakelde watermark; de sync is
-                    // idempotent, dus al verwerkte rijen zijn onschadelijk.
-                    $this->api->set_sinds($this->enrol_sinds($dot, $dos, $forcefull));
-                    if ((new enrollment_sync($this->api, $this->dryrun, $stats, $window, $dot, $dos))->run()) {
-                        if ($dot) {
-                            $this->advance_watermark('enrol_teachers', $runstart);
-                        }
-                        if ($dos) {
-                            $this->advance_watermark('enrol_students', $runstart);
-                        }
-                    }
-                }
-            }
-            if ($this->enabled('unenrolments')) {
-                $this->api->set_sinds($this->fase_sinds('unenrolments', $forcefull));
-                if ((new unenrollment_sync($this->api, $this->dryrun, $stats))->run()) {
-                    $this->advance_watermark('unenrolments', $runstart);
-                }
-            }
-
-            $duration = round(microtime(true) - $start, 1);
-            $summary = sprintf(
-                '[%s] %ss | sj=%s | courses c=%d u=%d f=%d skip=%d | users c=%d u=%d f=%d '
-                . '| enrol c=%d u=%d w=%d f=%d skip=%d | unenrol ok=%d w=%d f=%d skip=%d',
-                $mode, $duration, $this->window_label($window),
-                $stats->course_create, $stats->course_update, $stats->course_fail, $stats->course_skip,
-                $stats->user_create, $stats->user_update, $stats->user_fail,
-                $stats->enrol_create, $stats->enrol_update, $stats->enrol_warn, $stats->enrol_fail, $stats->enrol_skip,
-                $stats->unenrol_ok, $stats->unenrol_warn, $stats->unenrol_fail, $stats->unenrol_skip
-            );
-
-            logger::log('sync_summary', 'system', 'all', 'info', $summary);
-            set_config('last_run_time', time(), 'local_wisa');
-            set_config('last_run_summary', $summary, 'local_wisa');
-            set_config('last_run_dryrun', $this->dryrun ? 1 : 0, 'local_wisa');
             if (!$this->dryrun) {
-                // A successful live run accepts the data load; open the gate so the
-                // scheduled task may run from now on.
+                (new provisioning_service())->reconcile_pending_followups();
+            }
+            $registry = $this->registry();
+            $requests = (new source_stream_request_builder($this->sourcecomponent, $registry, $this->state))->build($forcefull);
+            event_logger::sync_started($this->source_name(), event_logger::mode_label($this->dryrun), $forcefull);
+            $results = $requests === [] ? [] : source_stream_envelope::validate_results(
+                $requests,
+                $this->source->fetch_streams($requests)
+            );
+            foreach ($requests as $request) {
+                $tuple = $request['stream'] . ':' . $request['phase'];
+                $result = $results[$tuple];
+                if ($result['status'] !== 'success') {
+                    $this->state->record_failure(
+                        $request['stream'],
+                        $request['phase'],
+                        $result['status'],
+                        $result['errorcode'],
+                        $runstart
+                    );
+                    $failed++;
+                    continue;
+                }
+                $this->state->record_processing($request['stream'], $request['phase'], $runstart);
+                try {
+                    $processing = $this->process_rows($request, $result['rows'], $stats, $window);
+                    if ($processing['success']) {
+                        $this->state->record_success(
+                            $request['stream'],
+                            $request['phase'],
+                            $this->mode_for($registry[$request['stream']], $request['phase']),
+                            $runstart,
+                            count($result['rows'])
+                        );
+                        $successful++;
+                    } else {
+                        $this->state->record_failure(
+                            $request['stream'],
+                            $request['phase'],
+                            $processing['blocked'] ? 'provisioning-blocked' : 'failed',
+                            $processing['blocked'] ? 'provisioning_blocked' : 'processing_failed',
+                            $runstart,
+                            count($result['rows'])
+                        );
+                        $failed++;
+                    }
+                } catch (\Throwable $exception) {
+                    $this->state->record_failure(
+                        $request['stream'],
+                        $request['phase'],
+                        'failed',
+                        'processing_failed',
+                        $runstart,
+                        count($result['rows'])
+                    );
+                    $failed++;
+                }
+            }
+            $status = $failed === 0 ? 'success' : ($successful === 0 ? 'failed' : 'partial');
+            $this->runstatus = $status;
+            $summary = $this->summary($stats);
+            if (!$this->dryrun) {
+                set_config('last_run_time', time(), 'local_wisa');
+                set_config('last_run_summary', $summary, 'local_wisa');
+                set_config('last_run_dryrun', 0, 'local_wisa');
+                set_config('last_run_status', $status, 'local_wisa');
+            }
+            if (!$this->dryrun && $status === 'success' && $requests !== []) {
                 set_config('initial_load_done', 1, 'local_wisa');
             }
+            event_logger::sync_completed(
+                $this->source_name(),
+                event_logger::mode_label($this->dryrun),
+                $forcefull,
+                (int)round(microtime(true) - $start),
+                $summary,
+                $stats,
+                $status
+            );
+            return $status === 'success';
+        } catch (\Throwable $exception) {
+            $this->runstatus = 'failed';
+            event_logger::sync_failed(
+                $this->source_name(),
+                event_logger::mode_label($this->dryrun),
+                $forcefull,
+                (int)round(microtime(true) - $start)
+            );
+            throw $exception;
         } finally {
             $lock->release();
         }
     }
 
-    /** Of een sync-onderdeel is ingeschakeld (default aan). */
-    private function enabled($part) {
-        return get_config('local_wisa', 'enable_' . $part) !== '0';
-    }
-
-    /** Bepaal de sinds-parameter voor één fase uit diens eigen watermark. */
-    private function fase_sinds($part, $forcefull) {
-        $wm = (int)get_config('local_wisa', 'wm_' . $part);
-        if ($forcefull || $wm <= 0) {
-            return '1900-01-01 00:00:00';
-        }
-        return date('Y-m-d H:i:s', $wm - 300); // 5 min overlap; sync is idempotent
-    }
-
-    /** Verzet de watermark van een fase, alleen na een geslaagde live (niet-dry-run) run. */
-    private function advance_watermark($part, $runstart) {
-        if (!$this->dryrun) {
-            set_config('wm_' . $part, $runstart, 'local_wisa');
-        }
-    }
-
     /**
-     * Sinds-parameter voor de inschrijvingsfeed: de oudste watermark van de ingeschakelde
-     * rollen (leraren/cursisten). Zo komen, wanneer een rol na een uit-periode weer aangaat,
-     * de intussen gemiste inschrijvingen alsnog mee.
-     */
-    private function enrol_sinds($dot, $dos, $forcefull) {
-        $candidates = [];
-        if ($dot) {
-            $candidates[] = $this->fase_sinds('enrol_teachers', $forcefull);
-        }
-        if ($dos) {
-            $candidates[] = $this->fase_sinds('enrol_students', $forcefull);
-        }
-        return $candidates ? min($candidates) : '1900-01-01 00:00:00';
-    }
-
-    /**
-     * Schooljaarvenster [van_ts, tot_ts] of null (filter uit). Een schooljaar loopt
-     * van 1 september tot 31 augustus. 'current' = lopend schooljaar, 'current_next'
-     * = lopend + volgend.
-     */
-    private function schoolyear_window() {
-        $scope = get_config('local_wisa', 'schoolyear_scope') ?: 'current_next';
-        if ($scope === 'off') {
-            return null;
-        }
-        $y = (int)date('Y');
-        $m = (int)date('n');
-        $startyear = ($m >= 9) ? $y : $y - 1;     // 1 september van het lopende schooljaar
-        $extra = ($scope === 'current') ? 1 : 2;  // aantal schooljaren in scope
-        $van = make_timestamp($startyear, 9, 1, 0, 0, 0);
-        $tot = make_timestamp($startyear + $extra, 8, 31, 23, 59, 59);
-        return [$van, $tot];
-    }
-
-    private function window_label($window) {
-        return $window === null ? 'off' : (date('Y-m-d', $window[0]) . '..' . date('Y-m-d', $window[1]));
-    }
-
-    /**
-     * Read-only preview of the next full load: per enabled part, how many records
-     * would be fetched, how many fall inside the school-year window, and how many
-     * are new. Writes nothing and logs nothing — used by the approval page so an
-     * admin can review before the first load runs.
+     * Return the outcome produced by the current run.
      *
-     * @return array ['window' => string, 'parts' => array]
+     * @return string|null Current success, partial or failed outcome.
      */
-    public function preview() {
-        raise_memory_limit(MEMORY_HUGE);
-        $window = $this->schoolyear_window();
-        $this->api->set_sinds('1900-01-01 00:00:00'); // Full load.
-        $result = ['window' => $this->window_label($window), 'parts' => []];
-
-        if ($this->enabled('courses')) {
-            $result['parts']['courses'] = $this->count_courses($this->api->get_courses(), $window);
-        }
-        if ($this->enabled('students')) {
-            $result['parts']['students'] = $this->count_users($this->api->get_students());
-        }
-        if ($this->enabled('teachers')) {
-            $result['parts']['teachers'] = $this->count_users($this->api->get_teachers());
-        }
-        if ($this->enabled('enrolments')) {
-            $dot = get_config('local_wisa', 'enrol_teachers') !== '0';
-            $dos = get_config('local_wisa', 'enrol_students') !== '0';
-            $result['parts']['enrolments'] = $this->count_enrol($this->api->get_enrolments(), $window, $dot, $dos);
-        }
-        if ($this->enabled('unenrolments')) {
-            $result['parts']['unenrolments'] = $this->count_simple($this->api->get_unenrolments());
-        }
-        return $result;
+    public function get_run_status(): ?string {
+        return $this->runstatus;
     }
 
-    /** Count courses: fetched, inside the window, and new (not yet in Moodle). */
-    private function count_courses($rows, $window) {
-        global $DB;
-        if (!is_array($rows)) {
-            return ['error' => true];
-        }
-        $inscope = 0;
-        $new = 0;
-        foreach ($rows as $r) {
-            $r = (array)$r;
-            $klas = trim($r['KLAS_ID'] ?? '');
-            if ($klas === '') {
-                continue;
-            }
-            $sd = !empty($r['BEGINDATUM']) ? strtotime($r['BEGINDATUM']) : 0;
-            $ed = !empty($r['EINDDATUM']) ? strtotime($r['EINDDATUM']) : 0;
-            if ($window !== null && (($ed && $ed < $window[0]) || ($sd && $sd > $window[1]))) {
-                continue;
-            }
-            $inscope++;
-            if (!$DB->record_exists('course', ['idnumber' => $klas])) {
-                $new++;
-            }
-        }
-        return ['fetched' => count($rows), 'in_scope' => $inscope, 'new' => $new, 'existing' => $inscope - $new];
+    /**
+     * Return source-free metadata for the active stream registry.
+     *
+     * @return array Source component and validated registry.
+     */
+    public function preview(): array {
+        return [
+            'sourcecomponent' => $this->sourcecomponent,
+            'streams' => $this->registry(),
+        ];
     }
 
-    /** Count users: fetched and new (no account with this idnumber yet). */
-    private function count_users($rows) {
-        global $DB;
-        if (!is_array($rows)) {
-            return ['error' => true];
-        }
-        $new = 0;
-        foreach ($rows as $r) {
-            $r = (array)$r;
-            $idnumber = trim($r['IDNUMBER'] ?? $r['USERNAME'] ?? '');
-            if ($idnumber === '') {
-                continue;
-            }
-            if (!$DB->record_exists('user', ['idnumber' => $idnumber, 'deleted' => 0])) {
-                $new++;
-            }
-        }
-        return ['fetched' => count($rows), 'new' => $new, 'existing' => count($rows) - $new];
+    /**
+     * Return the validated static registry for the injected source.
+     *
+     * @return array Validated source stream registry.
+     */
+    private function registry(): array {
+        $class = get_class($this->source);
+        return source_stream_registry::validate($class::get_stream_registry());
     }
 
-    /** Count enrolment rows: fetched and inside the window, honouring the role toggles. */
-    private function count_enrol($rows, $window, $dot = true, $dos = true) {
-        if (!is_array($rows)) {
-            return ['error' => true];
+    /**
+     * Process one successful tuple result through its generic phase service.
+     *
+     * @param array $request Source-stream request envelope.
+     * @param array $rows Source rows.
+     * @param sync_stats $stats Shared run statistics.
+     * @param array|null $window Configured school-year window.
+     * @return array Tuple processing and provisioning-block outcomes.
+     */
+    private function process_rows(array $request, array $rows, sync_stats $stats, ?array $window): array {
+        if ($request['phase'] === 'courses') {
+            $sync = new course_sync($this->sourcecomponent, $this->dryrun, $stats, $window);
+            $success = $sync->run($rows);
+            return ['success' => $success && !$sync->has_blocking_provisions(), 'blocked' => $sync->has_blocking_provisions()];
         }
-        $inscope = 0;
-        foreach ($rows as $r) {
-            $r = (array)$r;
-            $rol = strtolower(trim($r['ROL'] ?? 'student'));
-            $isteacher = ($rol === 'teacher' || $rol === 'leraar' || $rol === 'lkr');
-            if (($isteacher && !$dot) || (!$isteacher && !$dos)) {
-                continue;
-            }
-            if ($window === null) {
-                $inscope++;
-                continue;
-            }
-            $van = !empty($r['VAN']) ? strtotime($r['VAN']) : 0;
-            $tot = !empty($r['TOT']) ? strtotime($r['TOT']) : 0;
-            if (($tot && $tot < $window[0]) || ($van && $van > $window[1])) {
-                continue;
-            }
-            $inscope++;
+        if ($request['phase'] === 'users') {
+            return ['success' => (new user_sync($this->dryrun, $stats))->run($rows), 'blocked' => false];
         }
-        return ['fetched' => count($rows), 'in_scope' => $inscope];
+        if ($request['phase'] === 'enrolments') {
+            $sync = new enrollment_sync($this->sourcecomponent, $this->dryrun, $stats, $window);
+            $success = $sync->run($rows);
+            return ['success' => $success && !$sync->has_blocking_provisions(), 'blocked' => $sync->has_blocking_provisions()];
+        }
+        if ($request['phase'] === 'unenrolments') {
+            return ['success' => (new unenrollment_sync($this->dryrun, $stats))->run($rows), 'blocked' => false];
+        }
+        throw new \coding_exception('Unsupported source stream phase.');
     }
 
-    /** Count rows with no further breakdown. */
-    private function count_simple($rows) {
-        if (!is_array($rows)) {
-            return ['error' => true];
-        }
-        return ['fetched' => count($rows)];
+    /**
+     * Return the descriptor watermark mode for one tuple.
+     *
+     * @param array $descriptor Validated source stream descriptor.
+     * @param string $phase Descriptor phase.
+     * @return string Watermark mode.
+     */
+    private function mode_for(array $descriptor, string $phase): string {
+        return $descriptor['watermarkmode'][$phase];
+    }
+
+    /**
+     * Return the source short name for events.
+     *
+     * @return string Source short name.
+     */
+    private function source_name(): string {
+        return substr($this->sourcecomponent, strlen('sissource_'));
+    }
+
+    /**
+     * Build a safe run summary without source data.
+     *
+     * @param sync_stats $stats Run counters.
+     * @return string Safe summary.
+     */
+    private function summary(sync_stats $stats): string {
+        return sprintf(
+            '[%s] courses c=%d u=%d f=%d s=%d | users c=%d u=%d f=%d | enrol c=%d u=%d f=%d s=%d | unenrol ok=%d f=%d s=%d',
+            event_logger::mode_label($this->dryrun),
+            $stats->coursecreate,
+            $stats->courseupdate,
+            $stats->coursefail,
+            $stats->courseskip,
+            $stats->usercreate,
+            $stats->userupdate,
+            $stats->userfail,
+            $stats->enrolcreate,
+            $stats->enrolupdate,
+            $stats->enrolfail,
+            $stats->enrolskip,
+            $stats->unenrolok,
+            $stats->unenrolfail,
+            $stats->unenrolskip
+        );
     }
 }
