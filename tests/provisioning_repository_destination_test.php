@@ -50,6 +50,7 @@ final class provisioning_repository_destination_test extends provisioning_reposi
      * @return void
      */
     public function test_worker_can_record_pre_call_absence_and_one_destination_only_while_running(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $repository = new provisioning_repository();
         $pending = $this->create_pending($repository);
@@ -89,6 +90,7 @@ final class provisioning_repository_destination_test extends provisioning_reposi
      * @return void
      */
     public function test_composite_finalizer_commits_pointer_callback_and_terminal_state_together(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $repository = new provisioning_repository();
         $running = $repository->mark_running((int)$this->create_pending($repository)->id);
@@ -130,6 +132,7 @@ final class provisioning_repository_destination_test extends provisioning_reposi
      * @return void
      */
     public function test_recovery_clears_only_the_exact_running_destination_pointer(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $repository = new provisioning_repository();
         $running = $repository->mark_running((int)$this->create_pending($repository)->id);

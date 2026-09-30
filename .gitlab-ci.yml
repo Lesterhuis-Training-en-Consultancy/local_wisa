@@ -1,86 +1,11 @@
-stages:
-  - test
+include:
+  - project: 'sebsoft/open-source/gitlab'
+    ref: main
+    file: '/opensource-plugin/opensource-plugin-405+.yml'
 
 variables:
-  DB: "mysqli"
-  MYSQL_ROOT_PASSWORD: "superrootpass"
-  TRAVIS_BUILD_DIR: "$CI_PROJECT_DIR"
-  MOODLE_DIR: "/var/www/html/moodle"
   PLUGIN: "local_wisa"
   PATHNAME: "local/wisa"
-  REPOURL: "https://git.sebsoft.nl/sebsoft/klanten/ltnc/moodle-local-wisa"
+  REPOURL: "https://github.com/Lesterhuis-Training-en-Consultancy/local_wisa"
   REPOSYS: "git"
-  RELEASENOTEFORMAT: "0"
-
-.moodle_plugin_ci_template: &moodle_plugin_ci_definition
-  stage: test
-  image: git.sebsoft.nl:5050/sebsoft/open-source/moodle-cidocker:latest
-  services:
-    - name: mysql:8.4
-      alias: mysql
-  cache:
-    key: "moodle-plugin-ci-${MOODLE_BRANCH}"
-    paths:
-      - $HOME/.composer/cache
-      - $HOME/.npm
-  before_script:
-    - cd /root/
-    - umask u+x
-    - cd "$CI_PROJECT_DIR/.."
-    - source /root/.nvm/nvm.sh
-    - /root/ci/bin/moodle-plugin-ci --version
-    - /root/ci/bin/moodle-plugin-ci install --moodle="$MOODLE_DIR" --db-user=root --db-pass="$MYSQL_ROOT_PASSWORD" --db-host=mysql -vvv
-  script:
-    - |
-      failures=()
-
-      /root/ci/bin/moodle-plugin-ci phplint || failures+=("PHPLINT")
-      /root/ci/bin/moodle-plugin-ci phpcpd || true
-      /root/ci/bin/moodle-plugin-ci phpmd || failures+=("PHPMD")
-      /root/ci/bin/moodle-plugin-ci codechecker || failures+=("CODECHECKER")
-      /root/ci/bin/moodle-plugin-ci validate || failures+=("VALIDATE")
-      /root/ci/bin/moodle-plugin-ci savepoints || failures+=("SAVEPOINTS")
-      /root/ci/bin/moodle-plugin-ci mustache || failures+=("MUSTACHE")
-      /root/ci/bin/moodle-plugin-ci grunt || failures+=("GRUNT")
-      /root/ci/bin/moodle-plugin-ci phpdoc || failures+=("PHPDOC")
-      if [ "${COVERAGE:-0}" = "1" ]; then
-        /root/ci/bin/moodle-plugin-ci phpunit --coverage-text --coverage-clover || failures+=("PHPUNIT")
-        if [ -f coverage.xml ]; then
-          cp coverage.xml "$CI_PROJECT_DIR/coverage.xml"
-        fi
-      else
-        /root/ci/bin/moodle-plugin-ci phpunit || failures+=("PHPUNIT")
-      fi
-      /root/ci/bin/moodle-plugin-ci behat || failures+=("BEHAT")
-
-      for failure in "${failures[@]}"; do
-        echo "$failure -- FAIL"
-      done
-
-      if [ "${#failures[@]}" -gt "0" ]; then
-        echo "${#failures[@]} checks failed"
-        exit 1
-      fi
-  allow_failure: false
-
-Moodle 4.5 Standards:
-  <<: *moodle_plugin_ci_definition
-  variables:
-    MOODLE_BRANCH: "MOODLE_405_STABLE"
-
-Moodle 5.0 Standards:
-  <<: *moodle_plugin_ci_definition
-  variables:
-    MOODLE_BRANCH: "MOODLE_500_STABLE"
-
-Moodle 5.1 Standards:
-  <<: *moodle_plugin_ci_definition
-  variables:
-    MOODLE_BRANCH: "MOODLE_501_STABLE"
-    COVERAGE: "1"
-  coverage: '/^\s*Lines:\s*\d+\.\d+%/'
-  artifacts:
-    when: always
-    expire_in: 1 week
-    paths:
-      - coverage.xml
+  IGNORE_CAMP: "true"

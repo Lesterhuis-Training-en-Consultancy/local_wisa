@@ -99,6 +99,7 @@ final class provisioning_repository_test extends provisioning_repository_test_ca
      * @return void
      */
     public function test_state_machine_allows_only_pending_running_terminal_path_and_terminal_is_immutable(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $repository = new provisioning_repository();
         $pending = $this->create_pending($repository);

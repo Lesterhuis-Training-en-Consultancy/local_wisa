@@ -119,6 +119,7 @@ final class provisioning_repository_retry_test extends provisioning_repository_t
      * @return void
      */
     public function test_orphaned_pending_or_running_jobs_can_only_retry_through_explicit_authorized_path(): void {
+        $this->preventResetByRollback();
         $this->resetAfterTest();
         $repository = new provisioning_repository();
         $pending = $this->create_pending($repository);
