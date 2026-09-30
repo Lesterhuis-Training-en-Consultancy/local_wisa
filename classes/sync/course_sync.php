@@ -15,218 +15,237 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Course synchronisation from WISA.
+ * Course synchronisation from a SIS source.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\sync;
 
-defined('MOODLE_INTERNAL') || die();
-
-use local_wisa\api_client;
 use local_wisa\logger;
+use local_wisa\provisioning_repository;
 use local_wisa\sync_stats;
 
+/**
+ * Synchronises generic SIS course records into Moodle courses.
+ *
+ * @package    local_wisa
+ * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 class course_sync {
-    private $api;
-    private $default_category_id;
-    private $category_mode;
+    use course_provisioning_trait;
+    use course_category_trait;
+
+    /** @var string Source Frankenstyle component for durable provision identities. */
+    private string $sourcecomponent;
+
+    /** @var int Default Moodle course category id. */
+    private $defaultcategoryid;
+
+    /** @var string Category handling mode. */
+    private $categorymode;
+
+    /** @var bool Whether to avoid database mutations. */
     private $dryrun;
+
+    /** @var sync_stats Per-run statistics. */
     private $stats;
-    /** @var array|null [van_ts, tot_ts] schooljaarvenster, of null = geen filter. */
+
+    /** @var array|null [start timestamp, end timestamp] school-year window, or null = no filter. */
     private $window;
 
-    public function __construct(api_client $api, bool $dryrun = false, ?sync_stats $stats = null, ?array $window = null) {
-        $this->api = $api;
+    /** @var bool Whether this run encountered an active or failed provision. */
+    private bool $blockingprovisions = false;
+
+    /**
+     * Construct the course synchronisation service.
+     *
+     * @param string $sourcecomponent Source Frankenstyle component.
+     * @param bool $dryrun Whether to avoid database mutations.
+     * @param sync_stats|null $stats Per-run statistics.
+     * @param array|null $window School-year window.
+     */
+    public function __construct(string $sourcecomponent, bool $dryrun = false, ?sync_stats $stats = null, ?array $window = null) {
+        $this->sourcecomponent = $sourcecomponent;
         $this->dryrun = $dryrun;
         $this->stats = $stats ?: new sync_stats();
-        $this->default_category_id = get_config('local_wisa', 'default_category');
-        $this->category_mode = get_config('local_wisa', 'category_mode') ?: 'fixed';
+        $this->defaultcategoryid = get_config('local_wisa', 'default_category');
+        $this->categorymode = get_config('local_wisa', 'category_mode') ?: 'fixed';
         $this->window = $window;
     }
 
-    /** @return bool False when the WISA fetch failed (so the watermark must not advance). */
-    public function run() {
+    /**
+     * Run the course synchronisation.
+     *
+     * @param array $courses Source rows for one stream-phase tuple.
+     * @return bool Whether processing did not add a course failure.
+     */
+    public function run(array $courses): bool {
         global $CFG;
         require_once($CFG->dirroot . '/course/lib.php');
+        $this->blockingprovisions = false;
+        $coursefailbefore = $this->stats->coursefail;
 
-        $courses = $this->api->get_courses();
-        if ($courses === false || !is_array($courses)) {
-            logger::log('sync_courses', 'system', 'api', 'fail', 'Failed to fetch courses from WISA.');
-            return false;
-        }
+        logger::log('sync_courses', 'system', 'count', 'info', 'Processing ' . count($courses) . ' source stream rows.');
 
-        logger::log('sync_courses', 'system', 'count', 'info', 'Fetched ' . count($courses) . ' courses from WISA.');
-
-        foreach ($courses as $wisa_course) {
+        foreach ($courses as $courserecord) {
             try {
-                $this->process_course((array)$wisa_course);
+                $this->process_course((array)$courserecord);
             } catch (\Throwable $e) {
-                $klas = $wisa_course['KLAS_ID'] ?? 'unknown';
-                logger::log('sync_course', 'course', $klas, 'fail', "Process error: " . $e->getMessage());
-                $this->stats->course_fail++;
+                logger::log('sync_course', 'course', 'redacted', 'fail', 'COURSE_ROW_PROCESSING_FAILED');
+                $this->stats->coursefail++;
             }
         }
-        return true;
+        return $this->stats->coursefail === $coursefailbefore;
     }
 
-    private function process_course($wisa_course) {
+    /**
+     * Return whether this run found a provision that blocks synchronous course creation.
+     *
+     * @return bool Whether a pending, running, or failed provision was found or queued.
+     */
+    public function has_blocking_provisions(): bool {
+        return $this->blockingprovisions;
+    }
+
+    /**
+     * Create or update one generic course row.
+     *
+     * @param array $record Generic course record.
+     */
+    private function process_course($record) {
         global $DB;
 
-        $klas_id = trim($wisa_course['KLAS_ID'] ?? '');
-        $shortname = trim($wisa_course['SHORTNAME'] ?? '');
-        $fullname = trim($wisa_course['FULLNAME'] ?? '');
-        $startdate = $this->to_ts($wisa_course['BEGINDATUM'] ?? '');
-        $enddate = $this->to_ts($wisa_course['EINDDATUM'] ?? '');
+        $idnumber = trim($record['idnumber'] ?? '');
+        $shortname = trim($record['shortname'] ?? '');
+        $fullname = trim($record['fullname'] ?? '');
+        $startdate = $this->to_ts($record['startdate'] ?? '');
+        $enddate = $this->to_ts($record['enddate'] ?? '');
 
-        // Een onvolledige feed-rij (ontbrekende sleutelvelden) overslaan i.p.v. een
-        // kapotte cursus aan te maken.
-        if ($klas_id === '' || $shortname === '' || $fullname === '') {
-            logger::log('sync_course', 'course', $klas_id ?: 'unknown', 'fail',
-                'Missing KLAS_ID, SHORTNAME or FULLNAME in feed row; skipped.');
-            $this->stats->course_fail++;
+        if ($idnumber === '' || $shortname === '' || $fullname === '') {
+            logger::log(
+                'sync_course',
+                'course',
+                'redacted',
+                'fail',
+                'COURSE_ROW_REQUIRED_FIELDS_MISSING'
+            );
+            $this->stats->coursefail++;
             return;
         }
 
-        // Schooljaarvenster: sla cursussen over die volledig buiten het venster vallen.
         if ($this->window !== null) {
             if (($enddate && $enddate < $this->window[0]) || ($startdate && $startdate > $this->window[1])) {
-                $this->stats->course_skip++;
+                $this->stats->courseskip++;
                 return;
             }
         }
 
-        $existing_course = $DB->get_record('course', ['idnumber' => $klas_id]);
+        $existingcourse = $DB->get_record('course', ['idnumber' => $idnumber]);
+        $existingprovision = (new provisioning_repository())->get_by_source_course(
+            $this->sourcecomponent,
+            $idnumber
+        );
+        if ($existingprovision !== null) {
+            $completedprovision = in_array($existingprovision->status, [
+                provisioning_repository::STATUS_READY,
+                provisioning_repository::STATUS_FALLBACK_READY,
+            ], true) && $existingprovision->courseid !== null
+                && $DB->record_exists('course', ['id' => (int)$existingprovision->courseid])
+                && $existingcourse
+                && (int)$existingprovision->courseid === (int)$existingcourse->id;
+            if (!$existingcourse || !$completedprovision) {
+                $this->handle_existing_provision($existingprovision, $idnumber, $existingcourse ?: null);
+                return;
+            }
+        }
 
-        if ($existing_course) {
+        if ($existingcourse) {
             $update = new \stdClass();
-            $update->id = $existing_course->id;
+            $update->id = $existingcourse->id;
             $changed = false;
 
-            if ($existing_course->fullname !== $fullname) {
+            if ($existingcourse->fullname !== $fullname) {
                 $update->fullname = $fullname;
                 $changed = true;
             }
-            if ($existing_course->shortname !== $shortname) {
+            if ($existingcourse->shortname !== $shortname) {
                 if (!$DB->record_exists('course', ['shortname' => $shortname])) {
                     $update->shortname = $shortname;
                     $changed = true;
                 } else {
-                    logger::log('sync_course', 'course', $klas_id, 'warn', "Duplicate shortname $shortname skipped.");
+                    logger::log('sync_course', 'course', 'redacted', 'warn', 'COURSE_SHORTNAME_DUPLICATE');
                 }
             }
-            // Moodle requires startdate when enddate is set; pass both if either differs.
-            if ($existing_course->startdate != $startdate || $existing_course->enddate != $enddate) {
-                $update->startdate = $startdate ?: $existing_course->startdate;
+            if ($existingcourse->startdate != $startdate || $existingcourse->enddate != $enddate) {
+                $update->startdate = $startdate ?: $existingcourse->startdate;
                 $update->enddate = $enddate;
                 $changed = true;
             }
 
             if ($changed) {
                 if ($this->dryrun) {
-                    logger::log('sync_course', 'course', $klas_id, 'dryrun', "Would update course $fullname.");
+                    logger::log('sync_course', 'course', $idnumber, 'dryrun', "Would update course $fullname.");
                 } else {
                     update_course($update);
-                    logger::log('sync_course', 'course', $klas_id, 'update', "Updated course $fullname.");
+                    logger::log('sync_course', 'course', $idnumber, 'update', "Updated course $fullname.");
                 }
-                $this->stats->course_update++;
+                $this->stats->courseupdate++;
             }
-
         } else {
-            $new_course = new \stdClass();
-            $new_course->fullname = $fullname;
-            $new_course->shortname = $shortname;
-            $new_course->idnumber = $klas_id;
-            $new_course->startdate = $startdate;
-            $new_course->enddate = $enddate;
-            $new_course->category = $this->resolve_category_id($wisa_course);
-            $new_course->visible = 1;
+            $newcourse = new \stdClass();
+            $newcourse->fullname = $fullname;
+            $newcourse->shortname = $shortname;
+            $newcourse->idnumber = $idnumber;
+            $newcourse->startdate = $startdate;
+            $newcourse->enddate = $enddate;
+            $newcourse->category = $this->resolve_category_id($record);
+            $newcourse->visible = 1;
 
             if ($DB->record_exists('course', ['shortname' => $shortname])) {
-                $new_course->shortname = $shortname . '_' . $klas_id;
-                logger::log('sync_course', 'course', $klas_id, 'warn', "Duplicate shortname $shortname. Appended ID.");
+                $newcourse->shortname = $shortname . '_' . $idnumber;
+                logger::log('sync_course', 'course', 'redacted', 'warn', 'COURSE_SHORTNAME_DUPLICATE');
+            }
+
+            $templatekey = trim((string)($record['templatekey'] ?? ''));
+            if ($this->should_queue_provisioning($templatekey)) {
+                $this->queue_course_provision($newcourse, $templatekey);
+                return;
             }
 
             try {
                 if ($this->dryrun) {
-                    logger::log('sync_course', 'course', $klas_id, 'dryrun', "Would create course $fullname.");
+                    logger::log('sync_course', 'course', $idnumber, 'dryrun', "Would create course $fullname.");
                 } else {
-                    create_course($new_course);
-                    logger::log('sync_course', 'course', $klas_id, 'create', "Created course $fullname.");
+                    create_course($newcourse);
+                    logger::log('sync_course', 'course', $idnumber, 'create', "Created course $fullname.");
                 }
-                $this->stats->course_create++;
+                $this->stats->coursecreate++;
             } catch (\Exception $e) {
-                logger::log('sync_course', 'course', $klas_id, 'fail', "Failed to create course: " . $e->getMessage());
-                $this->stats->course_fail++;
+                logger::log('sync_course', 'course', 'redacted', 'fail', 'COURSE_CREATE_FAILED');
+                $this->stats->coursefail++;
             }
         }
     }
 
-    /** Parse a WISA date to a unix timestamp; '' or an unparseable value yields 0. */
+    /**
+     * Parse a source date to a Unix timestamp.
+     *
+     * @param string|int $value Date value or timestamp.
+     * @return int
+     */
     private function to_ts($value) {
+        if (is_int($value) || is_float($value)) {
+            return (int)$value;
+        }
         $value = trim((string)$value);
         if ($value === '') {
             return 0;
         }
         $ts = strtotime($value);
         return $ts !== false ? $ts : 0;
-    }
-
-    /**
-     * Resolve the target category id for a course.
-     *
-     * In 'fixed' mode (default) every course goes to the configured default
-     * category. In 'from_feed' mode the WISA CATEGORY field (a name, or a path
-     * like "Languages / NT2") is looked up and created if needed. Falls back to
-     * the default category when the field is empty, in dry-run, or on error.
-     */
-    private function resolve_category_id($wisa_course) {
-        if ($this->category_mode !== 'from_feed') {
-            return $this->default_category_id;
-        }
-        $path = trim($wisa_course['CATEGORY'] ?? '');
-        if ($path === '') {
-            return $this->default_category_id;
-        }
-        if ($this->dryrun) {
-            logger::log('sync_category', 'category', $path, 'dryrun',
-                "Would resolve/create category path '$path'.");
-            return $this->default_category_id;
-        }
-        try {
-            return $this->resolve_category_path($path);
-        } catch (\Throwable $e) {
-            logger::log('sync_category', 'category', $path, 'warn',
-                "Could not resolve category '$path' (" . $e->getMessage() . "); used default category.");
-            return $this->default_category_id;
-        }
-    }
-
-    /**
-     * Walk a "/"-separated category path, creating missing levels, and return the
-     * id of the deepest category.
-     */
-    private function resolve_category_path($path) {
-        global $DB;
-        $parentid = 0;
-        foreach (explode('/', $path) as $name) {
-            $name = trim($name);
-            if ($name === '') {
-                continue;
-            }
-            $existing = $DB->get_record('course_categories', ['name' => $name, 'parent' => $parentid]);
-            if ($existing) {
-                $parentid = (int)$existing->id;
-            } else {
-                $cat = \core_course_category::create((object)['name' => $name, 'parent' => $parentid]);
-                $parentid = (int)$cat->id;
-                logger::log('sync_category', 'category', $name, 'create',
-                    "Created category '$name' (id {$parentid}).");
-            }
-        }
-        return $parentid ?: $this->default_category_id;
     }
 }

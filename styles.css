@@ -1,0 +1,20 @@
+#page-admin-setting-local_wisa .form-shortname {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+#page-admin-local-wisa-logs .local-wisa-log-message {
+    min-width: 20rem;
+}
+
+@media (max-width: 575.98px) {
+    #page-admin-setting-local_wisa #adminsettings .row {
+        margin-right: 0;
+        margin-left: 0;
+    }
+
+    #page-admin-setting-local_wisa #adminsettings .form-setting .defaultsnext,
+    #page-admin-setting-local_wisa #adminsettings .form-setting .defaultsnext .form-select {
+        max-width: 100%;
+    }
+}

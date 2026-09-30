@@ -15,201 +15,288 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * User synchronisation: creates and updates cursist/teacher accounts from WISA.
+ * User synchronisation from a SIS source.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\sync;
 
-defined('MOODLE_INTERNAL') || die();
-
-use local_wisa\api_client;
 use local_wisa\logger;
 use local_wisa\sync_stats;
 
+/**
+ * Synchronises generic SIS student and teacher records into Moodle users.
+ */
 class user_sync {
-    private $api;
-    private $student_role_id;
-    private $teacher_role_id;
+    /** Safe user-table fields supplied by generic SIS records. */
+    private const CORE_FIELDS = [
+        'firstname',
+        'lastname',
+        'email',
+        'city',
+        'country',
+        'lang',
+        'description',
+        'institution',
+        'department',
+        'phone1',
+        'phone2',
+        'address',
+    ];
+
+    /** @var bool Whether to avoid database mutations. */
     private $dryrun;
+
+    /** @var sync_stats Per-run statistics. */
     private $stats;
 
-    public function __construct(api_client $api, bool $dryrun = false, ?sync_stats $stats = null) {
-        $this->api = $api;
+    /**
+     * Construct the user synchronisation service.
+     *
+     * @param bool $dryrun Whether to avoid database mutations.
+     * @param sync_stats|null $stats Per-run statistics.
+     */
+    public function __construct(bool $dryrun = false, ?sync_stats $stats = null) {
         $this->dryrun = $dryrun;
         $this->stats = $stats ?: new sync_stats();
-        $this->student_role_id = get_config('local_wisa', 'student_role');
-        $this->teacher_role_id = get_config('local_wisa', 'teacher_role');
     }
 
     /**
-     * @param string $mode 'both', 'teachers' or 'students'.
-     * @return bool True only when every requested feed was fetched successfully
-     *              (a failed fetch must not advance the delta watermark).
+     * Run user synchronisation for one source-stream tuple.
+     *
+     * @param array $rows Source rows for one users tuple.
+     * @return bool Whether all rows processed successfully.
      */
-    public function run($mode = 'both') {
+    public function run(array $rows): bool {
         global $CFG;
         require_once($CFG->dirroot . '/user/lib.php');
+        require_once($CFG->dirroot . '/user/profile/lib.php');
 
-        if ($mode !== 'both' && $mode !== 'teachers' && $mode !== 'students') {
-            $mode = 'both';
-        }
-
-        $ok = true;
-        if ($mode === 'both' || $mode === 'teachers') {
-            $ok = $this->sync_set($this->api->get_teachers(), 'teacher', 'teachers') && $ok;
-        }
-        if ($mode === 'both' || $mode === 'students') {
-            $ok = $this->sync_set($this->api->get_students(), 'student', 'students') && $ok;
-        }
-        return $ok;
+        return $this->sync_set($rows, 'stream');
     }
 
     /**
      * Process one fetched set of users.
      *
-     * @param array|false $rows Result of the API fetch.
-     * @param string $type 'teacher' or 'student'.
+     * @param array $rows Result rows for one source stream tuple.
      * @param string $label Log label.
-     * @return bool False when the fetch itself failed.
+     * @return bool Whether processing did not add a user failure.
      */
-    private function sync_set($rows, $type, $label) {
-        if ($rows === false || !is_array($rows)) {
-            logger::log('sync_users', 'system', $label, 'fail', "Failed to fetch $label from WISA.");
-            return false;
-        }
-        logger::log('sync_users', 'system', $label, 'info', 'Fetched ' . count($rows) . " $label.");
+    private function sync_set(array $rows, string $label): bool {
+        logger::log('sync_users', 'system', $label, 'info', 'Processing ' . count($rows) . " $label rows.");
+        $userfailbefore = $this->stats->userfail;
         foreach ($rows as $row) {
             try {
-                $this->process_user((array)$row, $type);
+                $this->process_user((array)$row);
             } catch (\Throwable $e) {
-                $u = is_array($row) ? ($row['USERNAME'] ?? 'unknown') : 'unknown';
-                logger::log('sync_user', 'user', $u, 'fail', 'Process error: ' . $e->getMessage());
-                $this->stats->user_fail++;
+                logger::log('sync_user', 'user', 'redacted', 'fail', 'USER_ROW_PROCESSING_FAILED');
+                $this->stats->userfail++;
             }
         }
-        return true;
+        return $this->stats->userfail === $userfailbefore;
     }
 
-    private function process_user($wisa_user, $type) {
+    /**
+     * Create or update one generic user row.
+     *
+     * @param array $record Generic user record.
+     */
+    private function process_user($record) {
         global $DB, $CFG;
 
-        // IDNUMBER is the stable matching key. A school may supply it as a dedicated
-        // field in the query; when absent we fall back to USERNAME (backward compatible).
-        $idnumber = trim($wisa_user['IDNUMBER'] ?? $wisa_user['USERNAME'] ?? '');
-        $username = clean_param(\core_text::strtolower(trim($wisa_user['USERNAME'] ?? '')), PARAM_USERNAME);
-        $email = trim($wisa_user['EMAIL'] ?? '');
-        $firstname = \core_text::substr(trim($wisa_user['FIRSTNAME'] ?? ''), 0, 100);
-        $lastname = \core_text::substr(trim($wisa_user['LASTNAME'] ?? ''), 0, 100);
+        $idnumber = trim($record['idnumber'] ?? $record['username'] ?? '');
+        $username = clean_param(\core_text::strtolower(trim($record['username'] ?? '')), PARAM_USERNAME);
+        $corevalues = $this->core_values($record);
+        $email = $corevalues['email'] ?? '';
+        $firstname = $corevalues['firstname'] ?? '';
+        $lastname = $corevalues['lastname'] ?? '';
+        $password = array_key_exists('password', $record) ? (string)$record['password'] : '';
+        $haspassword = trim($password) !== '';
 
         if ($username === '' || $idnumber === '') {
-            logger::log('sync_user', 'user', $idnumber ?: 'unknown', 'fail',
-                'Empty or invalid WISA username/idnumber, skipped.');
-            $this->stats->user_fail++;
+            logger::log(
+                'sync_user',
+                'user',
+                'redacted',
+                'fail',
+                'USER_ROW_REQUIRED_FIELDS_MISSING'
+            );
+            $this->stats->userfail++;
             return;
         }
 
-        // Names can carry diacritics (é, ü, ç, Á …). A name-derived address such as
-        // 'lpacquée@...' or 'aalcantaraÁlvarez@...' is not a valid e-mail, so without
-        // this it would be dropped and the account created without an address. Strip the
-        // diacritics from the local part so the user still loads (domain left untouched).
         if ($email !== '') {
             $email = $this->normalize_email($email);
         }
 
-        // Ignore a malformed email from the feed rather than storing it on the account.
         if ($email !== '' && !validate_email($email)) {
-            logger::log('sync_user', 'user', $idnumber, 'warn', "Invalid email '$email' from WISA ignored.");
+            logger::log('sync_user', 'user', 'redacted', 'warn', 'USER_EMAIL_INVALID');
             $email = '';
+            unset($corevalues['email']);
         }
 
-        // Match ONLY on idnumber — the stable, immutable WISA key. Matching on email
-        // (or username) is unsafe: a shared or changed email merges distinct people
-        // onto one Moodle account. The query decides what USERNAME contains; idnumber
-        // is how we recognise an existing account.
+        $profiledata = $this->profile_data($record);
+
         $user = $DB->get_record('user', ['idnumber' => $idnumber, 'deleted' => 0]);
 
         if ($user) {
-            // Update — never overwrite an existing name/email with an empty feed value.
             $update = new \stdClass();
             $update->id = $user->id;
             $changed = false;
 
-            if ($firstname !== '' && $user->firstname !== $firstname) {
-                $update->firstname = $firstname;
-                $changed = true;
-            }
-            if ($lastname !== '' && $user->lastname !== $lastname) {
-                $update->lastname = $lastname;
-                $changed = true;
-            }
-            if ($email !== '' && $user->email !== $email) {
-                $update->email = $email;
-                $changed = true;
-            }
-            if ($user->idnumber !== $idnumber) {
-                $update->idnumber = $idnumber;
-                $changed = true;
+            foreach ($corevalues as $field => $value) {
+                if ($user->$field !== $value) {
+                    $update->$field = $value;
+                    $changed = true;
+                }
             }
 
-            if ($changed) {
+            if ($changed || $profiledata !== null) {
                 if ($this->dryrun) {
                     logger::log('sync_user', 'user', $idnumber, 'dryrun', "Would update user $firstname $lastname.");
                 } else {
-                    user_update_user($update, false);
+                    if ($changed) {
+                        user_update_user($update, false);
+                    }
+                    if ($profiledata !== null) {
+                        $profiledata->id = $user->id;
+                        profile_save_data($profiledata);
+                    }
                     logger::log('sync_user', 'user', $idnumber, 'update', "Updated user $firstname $lastname.");
                 }
-                $this->stats->user_update++;
+                $this->stats->userupdate++;
             }
-
         } else {
-            // No user with this idnumber exists -> create one. Guard against hijacking
-            // an existing account (or a duplicate-username DB failure): if the username
-            // is already taken by another record, log a conflict and skip.
             if ($DB->record_exists('user', ['username' => $username, 'deleted' => 0])) {
-                logger::log('sync_user', 'user', $idnumber, 'warn',
-                    "Username '$username' already exists with a different idnumber; skipped to avoid collision.");
-                $this->stats->user_fail++;
+                logger::log(
+                    'sync_user',
+                    'user',
+                    'redacted',
+                    'warn',
+                    'Username already exists with a different idnumber.'
+                );
+                $this->stats->userfail++;
                 return;
             }
 
-            $new_user = new \stdClass();
-            $new_user->auth = 'manual';
-            $new_user->confirmed = 1;
-            $new_user->mnethostid = $CFG->mnet_localhost_id;
-            $new_user->username = $username;
-            $new_user->password = hash_internal_user_password(random_string(24));
-            $new_user->firstname = $firstname;
-            $new_user->lastname = $lastname;
-            $new_user->email = $email;
-            $new_user->idnumber = $idnumber;
-            $new_user->lang = $CFG->lang ?? 'en';
+            $newuser = new \stdClass();
+            $newuser->auth = 'manual';
+            $newuser->confirmed = 1;
+            $newuser->mnethostid = $CFG->mnet_localhost_id;
+            $newuser->username = $username;
+            $newuser->password = hash_internal_user_password($haspassword ? $password : random_string(24));
+            $newuser->idnumber = $idnumber;
+            foreach ($corevalues as $field => $value) {
+                $newuser->$field = $value;
+            }
+            $newuser->firstname = $firstname;
+            $newuser->lastname = $lastname;
+            $newuser->email = $email;
+            if (!isset($newuser->lang)) {
+                $newuser->lang = $CFG->lang ?? 'en';
+            }
 
             try {
-                if ($this->dryrun) {
-                    logger::log('sync_user', 'user', $idnumber, 'dryrun', "Would create user $firstname $lastname.");
-                } else {
-                    $user_id = user_create_user($new_user, false, false);
-                    // Force password change at next login - user has no usable password.
-                    set_user_preference('auth_forcepasswordchange', 1, $user_id);
-                    logger::log('sync_user', 'user', $idnumber, 'create', "Created user $firstname $lastname.");
+                if (!$this->dryrun) {
+                    $userid = user_create_user($newuser, false, false);
+                    if ($this->force_password_change_enabled()) {
+                        set_user_preference('auth_forcepasswordchange', 1, $userid);
+                    }
                 }
-                $this->stats->user_create++;
             } catch (\Exception $e) {
-                logger::log('sync_user', 'user', $idnumber, 'fail', "Failed to create user: " . $e->getMessage());
-                $this->stats->user_fail++;
+                logger::log('sync_user', 'user', 'redacted', 'fail', 'USER_CREATE_FAILED');
+                $this->stats->userfail++;
+                return;
             }
+
+            if (!$this->dryrun && $profiledata !== null) {
+                $profiledata->id = $userid;
+                profile_save_data($profiledata);
+            }
+            logger::log(
+                'sync_user',
+                'user',
+                $idnumber,
+                $this->dryrun ? 'dryrun' : 'create',
+                $this->dryrun ? "Would create user $firstname $lastname." : "Created user $firstname $lastname."
+            );
+            $this->stats->usercreate++;
         }
     }
 
     /**
-     * Make a name-derived e-mail valid by stripping diacritics from the local part
-     * (é→e, ü→u, ç→c, ñ→n, Á→a …). The domain is left as-is, and an address with no
-     * special characters is returned unchanged — so plain addresses (e.g. C19710@…)
-     * are never rewritten and no needless updates are triggered.
+     * Return whether newly created users must change their initial password.
+     *
+     * @return bool True when the policy is enabled or has not been configured yet.
+     */
+    private function force_password_change_enabled(): bool {
+        $setting = get_config('local_wisa', 'force_password_change');
+        return $setting === false || (bool)$setting;
+    }
+
+    /**
+     * Collect non-empty safe core fields from a generic SIS record.
+     *
+     * @param array $record Generic user record.
+     * @return array Safe core fields indexed by user-table field name.
+     */
+    private function core_values(array $record): array {
+        $values = [];
+        foreach (self::CORE_FIELDS as $field) {
+            if (!array_key_exists($field, $record)) {
+                continue;
+            }
+            $value = trim((string)$record[$field]);
+            if ($value === '') {
+                continue;
+            }
+            if ($field === 'firstname' || $field === 'lastname') {
+                $value = \core_text::substr($value, 0, 100);
+            }
+            if ($field === 'email') {
+                $value = $this->normalize_email($value);
+            }
+            $values[$field] = $value;
+        }
+        return $values;
+    }
+
+    /**
+     * Collect supplied custom profile fields that exist in Moodle.
+     *
+     * @param array $record Generic user record.
+     * @return \stdClass|null Data accepted by the Moodle profile API, or null when none is supplied.
+     */
+    private function profile_data(array $record): ?\stdClass {
+        global $DB;
+
+        $profiledata = new \stdClass();
+        foreach ($record as $field => $value) {
+            if (strpos($field, 'profile_field_') !== 0) {
+                continue;
+            }
+            $shortname = substr($field, 14);
+            if ($shortname === '' || !$DB->record_exists('user_info_field', ['shortname' => $shortname])) {
+                logger::log(
+                    'sync_user',
+                    'user',
+                    'redacted',
+                    'warn',
+                    'Unknown profile field shortname from source ignored.'
+                );
+                continue;
+            }
+            $profiledata->$field = $value;
+        }
+
+        return get_object_vars($profiledata) ? $profiledata : null;
+    }
+
+    /**
+     * Make a name-derived e-mail valid by stripping diacritics from the local part.
      *
      * @param string $email
      * @return string
@@ -220,8 +307,6 @@ class user_sync {
         $domain = ($at === false) ? '' : \core_text::substr($email, $at);
         $ascii = \core_text::specialtoascii($local);
         if ($ascii !== $local) {
-            // Had diacritics: force the local part to lowercase ASCII so it matches the
-            // institutional address (e.g. 'aalcantaraalvarez').
             $local = \core_text::strtolower($ascii);
         }
         return $local . $domain;

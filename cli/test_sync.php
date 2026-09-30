@@ -15,11 +15,11 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * CLI script to run a WISA sync for testing.
+ * CLI script to run a SIS sync for testing.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 define('CLI_SCRIPT', true);
@@ -27,56 +27,39 @@ define('CLI_SCRIPT', true);
 require(__DIR__ . '/../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
 
-// Get command line options
-list($options, $unrecognized) = cli_get_params(
-    array('help' => false, 'preview' => false, 'approve' => false),
-    array('h' => 'help')
+// Get command line options.
+[$options, $unrecognized] = cli_get_params(
+    ['help' => false, 'preview' => false, 'approve' => false],
+    ['h' => 'help']
 );
 
 if ($options['help']) {
-    echo "WISA sync CLI\n";
+    echo "SIS sync CLI\n";
     echo "Usage: php local/wisa/cli/test_sync.php [--preview|--approve]\n";
-    echo "  (no option)  Run a sync now using the configured test/live mode.\n";
-    echo "  --preview    Count what the next full load would fetch; writes nothing.\n";
-    echo "  --approve    Go live: switch off test mode, open the gate and run the first full load.\n";
+    echo "  (no option)  Queue a sync using the configured test/live mode.\n";
+    echo "  --preview    Queue a read-only count of the next full load.\n";
+    echo "  --approve    Queue the approved initial full load in live mode.\n";
     exit(0);
 }
 
-$manager = new \local_wisa\sync_manager();
+$userid = (int)get_admin()->id;
 
 if ($options['preview']) {
-    $p = $manager->preview();
-    echo "Preview (school year window: {$p['window']})\n";
-    foreach ($p['parts'] as $part => $c) {
-        if (!empty($c['error'])) {
-            echo "  $part: FETCH ERROR\n";
-            continue;
-        }
-        $line = "  $part: fetched={$c['fetched']}";
-        if (isset($c['in_scope'])) {
-            $line .= " in_scope={$c['in_scope']}";
-        }
-        if (isset($c['new'])) {
-            $line .= " new={$c['new']}";
-        }
-        echo $line . "\n";
-    }
+    \local_wisa\explicit_action_queue::queue_preview($userid);
+    echo "Preview queued.\n";
     exit(0);
 }
 
 try {
     if ($options['approve']) {
-        echo "Approving first full load: switching off test mode and loading everything...\n";
-        set_config('dry_run', 0, 'local_wisa');
-        set_config('initial_load_done', 1, 'local_wisa');
-        $manager->run_full_sync(true, true);
+        $result = \local_wisa\explicit_action_queue::queue_initial_load($userid);
+        echo $result['queued'] ? "Initial full load queued.\n" : "Initial full load already queued.\n";
     } else {
-        echo "Starting WISA sync...\n";
-        $manager->run_full_sync();
+        \local_wisa\explicit_action_queue::queue_manual_sync($userid);
+        echo "SIS sync queued.\n";
     }
-    echo "Sync completed successfully.\n";
 } catch (Exception $e) {
-    echo "Sync failed: " . $e->getMessage() . "\n";
+    echo "Unable to queue SIS action: " . $e->getMessage() . "\n";
     exit(1);
 }
 

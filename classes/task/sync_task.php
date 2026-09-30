@@ -19,24 +19,34 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\task;
 
-defined('MOODLE_INTERNAL') || die();
 
 use local_wisa\sync_manager;
 
+/**
+ * Runs the regular SIS delta synchronisation.
+ */
 class sync_task extends \core\task\scheduled_task {
+    /**
+     * Return the scheduled task name.
+     *
+     * @return string
+     */
     public function get_name() {
         return get_string('task_sync', 'local_wisa');
     }
 
+    /**
+     * Execute the scheduled delta synchronisation.
+     */
     public function execute() {
         if (get_config('local_wisa', 'initial_load_done') !== '1') {
             mtrace('local_wisa: initial full load not yet approved; skipping scheduled sync. '
-                . 'Approve it on the WISA preview page first.');
+                . 'Approve it on the SIS preview page first.');
             return;
         }
         $manager = new sync_manager();

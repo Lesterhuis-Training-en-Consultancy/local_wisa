@@ -19,14 +19,14 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_wisa';
-$plugin->version   = 2026061600;   // YYYYMMDDXX.
+$plugin->version   = 2026091600;   // YYYYMMDDXX.
 $plugin->requires  = 2022041900;   // Moodle 4.0+.
 $plugin->supported = [400, 501];   // Moodle 4.0 to 5.1 (validated on 5.1).
 $plugin->maturity  = MATURITY_BETA;
-$plugin->release   = 'v0.6.4';
+$plugin->release   = 'v0.10.4';

@@ -19,31 +19,31 @@
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
 
-$tasks = array(
-    array(
+$tasks = [
+    [
         'classname' => 'local_wisa\task\sync_task',
         'blocking' => 0,
         'minute' => '*/5',
         'hour' => '*',
         'day' => '*',
         'dayofweek' => '*',
-        'month' => '*'
-    ),
-    array(
+        'month' => '*',
+    ],
+    [
         'classname' => 'local_wisa\task\log_cleanup_task',
         'blocking' => 0,
         'minute' => '15',
         'hour' => '3',
         'day' => '*',
         'dayofweek' => '*',
-        'month' => '*'
-    ),
-    array(
+        'month' => '*',
+    ],
+    [
         // Nightly full reconciliation; only does work when enable_reconcile is on.
         'classname' => 'local_wisa\task\reconcile_task',
         'blocking' => 0,
@@ -51,6 +51,6 @@ $tasks = array(
         'hour' => '4',
         'day' => '*',
         'dayofweek' => '*',
-        'month' => '*'
-    )
-);
+        'month' => '*',
+    ],
+];

@@ -15,31 +15,78 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Admin page: WISA synchronisation log viewer.
+ * Admin page: SIS synchronisation log viewer.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 require_once(__DIR__ . '/../../config.php');
 require_once($CFG->libdir . '/adminlib.php');
 
 admin_externalpage_setup('local_wisa_logs');
+$context = context_system::instance();
+require_capability('moodle/site:config', $context);
 
 $PAGE->set_url(new moodle_url('/local/wisa/logs.php'));
 $PAGE->set_title(get_string('log_view', 'local_wisa'));
 $PAGE->set_heading(get_string('log_view', 'local_wisa'));
 
-if (optional_param('runsync', 0, PARAM_BOOL) && confirm_sesskey()) {
+$runsync = optional_param('runsync', 0, PARAM_BOOL);
+if ($runsync) {
     require_sesskey();
-    \core\notification::info(get_string('manual_sync_started', 'local_wisa'));
-    $manager = new \local_wisa\sync_manager();
-    $manager->run_full_sync();
+    $queued = \local_wisa\explicit_action_queue::queue_manual_sync((int)$USER->id);
+    $notification = $queued ? 'manual_sync_queued' : 'manual_sync_already_queued';
+    $SESSION->local_wisa_action_notification = $notification;
+    redirect($PAGE->url);
+}
+
+$runforcefull = optional_param('runforcefull', 0, PARAM_BOOL);
+if ($runforcefull) {
+    require_sesskey();
+    $queued = \local_wisa\explicit_action_queue::queue_force_full_sync((int)$USER->id);
+    $notification = $queued ? 'force_full_sync_queued' : 'force_full_sync_already_queued';
+    $SESSION->local_wisa_action_notification = $notification;
     redirect($PAGE->url);
 }
 
 echo $OUTPUT->header();
+
+$actionnotification = $SESSION->local_wisa_action_notification ?? '';
+unset($SESSION->local_wisa_action_notification);
+$validactionnotifications = [
+    'manual_sync_queued',
+    'manual_sync_already_queued',
+    'force_full_sync_queued',
+    'force_full_sync_already_queued',
+];
+if (in_array($actionnotification, $validactionnotifications, true)) {
+    echo $OUTPUT->notification(get_string($actionnotification, 'local_wisa'), 'info');
+}
+
+$manualstatus = (string)get_config('local_wisa', 'last_manual_sync_status');
+if (!in_array($manualstatus, ['queued', 'success', 'partial', 'failed'], true)) {
+    $manualstatus = '';
+}
+$manualmode = (string)get_config('local_wisa', 'last_manual_sync_mode');
+if (!in_array($manualmode, ['DRY-RUN', 'LIVE'], true)) {
+    $manualmode = '';
+}
+$manualtime = (int)get_config('local_wisa', 'last_manual_sync_time');
+
+if ($manualstatus !== '') {
+    $messagetype = $manualstatus === 'success' ? 'success' :
+        ($manualstatus === 'failed' ? 'error' : ($manualstatus === 'partial' ? 'warning' : 'info'));
+    $messageparams = (object)['mode' => s($manualmode)];
+    echo $OUTPUT->notification(
+        get_string('manual_sync_result_' . $manualstatus, 'local_wisa', $messageparams),
+        $messagetype
+    );
+    if ($manualtime > 0) {
+        echo \html_writer::tag('p', get_string('action_result_time', 'local_wisa', s(userdate($manualtime))));
+    }
+}
 
 $lasttime = (int)get_config('local_wisa', 'last_run_time');
 $lastsummary = get_config('local_wisa', 'last_run_summary');
@@ -74,7 +121,14 @@ if (get_config('local_wisa', 'initial_load_done') !== '1') {
 
 echo $OUTPUT->single_button(
     new moodle_url('/local/wisa/logs.php', ['runsync' => 1, 'sesskey' => sesskey()]),
-    get_string('manual_sync_btn', 'local_wisa')
+    get_string('manual_sync_btn', 'local_wisa'),
+    'post'
+);
+echo \html_writer::tag('p', get_string('force_full_sync_intro', 'local_wisa'), ['class' => 'mt-3']);
+echo $OUTPUT->single_button(
+    new moodle_url('/local/wisa/logs.php', ['runforcefull' => 1, 'sesskey' => sesskey()]),
+    get_string('force_full_sync_btn', 'local_wisa'),
+    'post'
 );
 
 $table = new html_table();
@@ -90,13 +144,15 @@ $table->head = [
 $logs = $DB->get_records('local_wisa_log', null, 'timecreated DESC', '*', 0, 200);
 
 foreach ($logs as $log) {
+    $messagecell = new html_table_cell(s($log->message));
+    $messagecell->attributes['class'] = 'local-wisa-log-message';
     $table->data[] = [
-        userdate($log->timecreated),
-        $log->action,
-        $log->objecttype,
-        $log->objectid,
-        $log->status,
-        $log->message,
+        s(userdate($log->timecreated)),
+        s($log->action),
+        s($log->objecttype),
+        s($log->objectid),
+        s($log->status),
+        $messagecell,
     ];
 }
 

@@ -15,61 +15,68 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Unenrolment synchronisation: suspends leavers reported by WISA.
+ * Unenrolment synchronisation from a SIS source.
  *
  * @package    local_wisa
  * @copyright  2026 Tom Verbesselt <media.atelier@cvoantwerpen.be>
- * @license    http://www.gnu.org/licenses/gpl-3.0.txt GNU GPL v3 or later
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 namespace local_wisa\sync;
 
-defined('MOODLE_INTERNAL') || die();
-
-use local_wisa\api_client;
 use local_wisa\logger;
 use local_wisa\sync_stats;
 
 /**
- * Consumes the unenrolment feed (default MCVOD_UIT) — rows for cursists/teachers
- * that left a WISA class. Matched, actively-enrolled users are *suspended* in the
- * Moodle course (status ENROL_USER_SUSPENDED), not hard-unenrolled: this preserves
- * grades and history and is reversible (the enrolment sync reactivates them if they
- * return). Each row carries KLAS_ID (course idnumber) and USERNAME (user key).
- *
- * A safety valve guards against bad feed data: if a single run would suspend more
- * than the configured absolute number or share of all active enrolments, nothing is
- * suspended and an alarm is logged so an administrator can intervene.
+ * Suspends leavers reported by a SIS source, with a safety valve.
  */
 class unenrollment_sync {
-    private $api;
-    private $enrol_plugin;
+    /** @var \enrol_manual_plugin Manual enrol plugin. */
+    private $enrolplugin;
+
+    /** @var bool Whether to avoid database mutations. */
     private $dryrun;
+
+    /** @var sync_stats Per-run statistics. */
     private $stats;
-    /** @var array Run-caches to avoid repeated DB lookups for the same key. */
+
+    /** @var array Course lookup cache. */
     private $coursecache = [];
+
+    /** @var array User lookup cache. */
     private $usercache = [];
+
+    /** @var array Enrol instance lookup cache. */
     private $instancecache = [];
 
-    public function __construct(api_client $api, bool $dryrun = false, ?sync_stats $stats = null) {
-        $this->api = $api;
+    /**
+     * Construct the unenrolment synchronisation service.
+     *
+     * @param bool $dryrun Whether to avoid database mutations.
+     * @param sync_stats|null $stats Per-run statistics.
+     */
+    public function __construct(bool $dryrun = false, ?sync_stats $stats = null) {
         $this->dryrun = $dryrun;
         $this->stats = $stats ?: new sync_stats();
-        $this->enrol_plugin = enrol_get_plugin('manual');
+        $this->enrolplugin = enrol_get_plugin('manual');
     }
 
-    /** @return bool False when the fetch failed or the safety valve aborted (watermark must not advance). */
-    public function run() {
-        $rows = $this->api->get_unenrolments();
-        if ($rows === false || !is_array($rows)) {
-            logger::log('sync_unenrol', 'system', 'api', 'fail', 'Failed to fetch unenrolments from WISA.');
-            return false;
-        }
+    /**
+     * Run the unenrolment synchronisation.
+     *
+     * @param array $rows Source rows for one unenrolments tuple.
+     * @return bool False when the safety valve aborts.
+     */
+    public function run(array $rows): bool {
+        $initialfailures = $this->stats->unenrolfail;
+        logger::log(
+            'sync_unenrol',
+            'system',
+            'count',
+            'info',
+            'Processing ' . count($rows) . ' unenrolment rows.'
+        );
 
-        logger::log('sync_unenrol', 'system', 'count', 'info',
-            'Fetched ' . count($rows) . ' unenrolment rows from WISA.');
-
-        // Pass 1: determine which currently-active enrolments would be suspended.
         $targets = [];
         foreach ($rows as $row) {
             try {
@@ -78,92 +85,95 @@ class unenrollment_sync {
                     $targets[] = $target;
                 }
             } catch (\Throwable $e) {
-                $key = (is_array($row) ? ($row['KLAS_ID'] ?? '?') : '?') . '/'
-                     . (is_array($row) ? ($row['USERNAME'] ?? '?') : '?');
-                logger::log('sync_unenrol', 'enrollment', $key, 'fail', "Process error: " . $e->getMessage());
-                $this->stats->unenrol_fail++;
+                logger::log('sync_unenrol', 'enrollment', 'redacted', 'fail', 'UNENROLMENT_ROW_PROCESSING_FAILED');
+                $this->stats->unenrolfail++;
             }
         }
 
-        // Safety valve: refuse an unexpectedly large suspension wave (e.g. bad feed data).
         $safe = $this->within_safety_limit(count($targets));
         if (!$safe && !$this->dryrun) {
-            // Do not advance the watermark: the same rows must be offered again after
-            // the administrator checks the data or raises the limit.
             return false;
         }
 
-        // Pass 2: apply the suspensions.
         foreach ($targets as $target) {
             $this->suspend($target);
         }
-        return true;
+        return $this->stats->unenrolfail === $initialfailures;
     }
 
     /**
-     * Resolve one feed row to a suspend target, or null when there is nothing to do.
+     * Resolve one source row to a suspend target.
      *
+     * @param array $row Generic unenrolment row.
      * @return array|null ['course' => ..., 'user' => ..., 'instance' => ...]
      */
     private function resolve_target($row) {
-        $klas_id = trim($row['KLAS_ID'] ?? '');
-        $idnumber = trim($row['USERNAME'] ?? '');
+        $courseidnumber = trim($row['courseidnumber'] ?? '');
+        $useridnumber = trim($row['useridnumber'] ?? '');
 
-        if ($klas_id === '' || $idnumber === '') {
-            $this->stats->unenrol_warn++;
+        if ($courseidnumber === '' || $useridnumber === '') {
+            $this->stats->unenrolfail++;
             return null;
         }
 
-        $course = $this->get_course($klas_id);
+        $course = $this->get_course($courseidnumber);
         if (!$course) {
-            // Cursus niet in Moodle (buiten scope) -> niets te doen, stil overslaan.
-            $this->stats->unenrol_skip++;
+            $this->stats->unenrolskip++;
             return null;
         }
 
-        $user = $this->get_user($idnumber);
+        $user = $this->get_user($useridnumber);
         if (!$user) {
-            // Geen Moodle-account -> niets ingeschreven om te suspenden.
-            $this->stats->unenrol_skip++;
+            $this->stats->unenrolskip++;
             return null;
         }
 
         $context = \context_course::instance($course->id);
-        // Only act when the user is currently actively enrolled.
         if (!is_enrolled($context, $user->id, '', true)) {
             return null;
         }
 
         $instance = $this->get_manual_instance($course);
         if (!$instance) {
-            // Enrolled via a non-manual method we do not manage; skip.
-            logger::log('sync_unenrol', 'enrollment', $user->username, 'warn',
-                "No manual enrol instance for {$course->shortname}; not suspended.");
-            $this->stats->unenrol_warn++;
+            logger::log(
+                'sync_unenrol',
+                'enrollment',
+                'redacted',
+                'warn',
+                'UNENROLMENT_MANUAL_INSTANCE_UNAVAILABLE'
+            );
+            $this->stats->unenrolwarn++;
             return null;
         }
 
         return ['course' => $course, 'user' => $user, 'instance' => $instance];
     }
 
+    /**
+     * Suspend one resolved enrolment target.
+     *
+     * @param array $target Resolved target.
+     */
     private function suspend($target) {
         $course = $target['course'];
         $user = $target['user'];
 
         if ($this->dryrun) {
             logger::log('sync_unenrol', 'enrollment', $user->username, 'dryrun', "Would suspend in {$course->shortname}.");
-            $this->stats->unenrol_ok++;
+            $this->stats->unenrolok++;
             return;
         }
 
-        $this->enrol_plugin->update_user_enrol($target['instance'], $user->id, ENROL_USER_SUSPENDED);
+        $this->enrolplugin->update_user_enrol($target['instance'], $user->id, ENROL_USER_SUSPENDED);
         logger::log('sync_unenrol', 'enrollment', $user->username, 'update', "Suspended in {$course->shortname}.");
-        $this->stats->unenrol_ok++;
+        $this->stats->unenrolok++;
     }
 
     /**
-     * Is it safe to suspend $count enrolments this run? Logs an alarm and returns
-     * false when the absolute or ratio limit is exceeded. A limit of 0 disables it.
+     * Return whether a suspension count is within configured safety limits.
+     *
+     * @param int $count Number of enrolments to suspend.
+     * @return bool
      */
     private function within_safety_limit($count) {
         if ($count === 0) {
@@ -173,26 +183,37 @@ class unenrollment_sync {
         $maxpct = (int)get_config('local_wisa', 'unenrol_safety_pct');
 
         if ($maxabs > 0 && $count > $maxabs) {
-            logger::log('sync_unenrol', 'system', 'safety', 'fail',
-                "SAFETY STOP: $count suspensions exceed the absolute limit of $maxabs. " .
-                'No users were suspended this run — check the MCVOD_UIT data or raise local_wisa | unenrol_safety_max.');
+            logger::log(
+                'sync_unenrol',
+                'system',
+                'redacted',
+                'fail',
+                'UNENROLMENT_SAFETY_LIMIT_EXCEEDED'
+            );
             return false;
         }
 
         if ($maxpct > 0) {
             $active = $this->active_manual_enrolments();
             if ($active > 0 && ($count / $active * 100) > $maxpct) {
-                $pct = round($count / $active * 100, 1);
-                logger::log('sync_unenrol', 'system', 'safety', 'fail',
-                    "SAFETY STOP: $count suspensions = {$pct}% of $active active enrolments (limit {$maxpct}%). " .
-                    'No users were suspended this run — check the MCVOD_UIT data or raise local_wisa | unenrol_safety_pct.');
+                logger::log(
+                    'sync_unenrol',
+                    'system',
+                    'redacted',
+                    'fail',
+                    'UNENROLMENT_SAFETY_LIMIT_EXCEEDED'
+                );
                 return false;
             }
         }
         return true;
     }
 
-    /** Total number of active enrolments on manual enrol instances, site-wide. */
+    /**
+     * Count active site-wide manual enrolments.
+     *
+     * @return int
+     */
     private function active_manual_enrolments() {
         global $DB;
         return (int)$DB->count_records_sql(
@@ -200,19 +221,30 @@ class unenrollment_sync {
                FROM {user_enrolments} ue
                JOIN {enrol} e ON e.id = ue.enrolid
               WHERE e.enrol = 'manual' AND ue.status = :active",
-            ['active' => ENROL_USER_ACTIVE]);
+            ['active' => ENROL_USER_ACTIVE]
+        );
     }
 
-    /** Course lookup by idnumber (KLAS_ID), cached per run (false = not found). */
-    private function get_course($klas_id) {
+    /**
+     * Look up a course by idnumber.
+     *
+     * @param string $idnumber Course idnumber.
+     * @return object|false
+     */
+    private function get_course($idnumber) {
         global $DB;
-        if (!array_key_exists($klas_id, $this->coursecache)) {
-            $this->coursecache[$klas_id] = $DB->get_record('course', ['idnumber' => $klas_id]) ?: false;
+        if (!array_key_exists($idnumber, $this->coursecache)) {
+            $this->coursecache[$idnumber] = $DB->get_record('course', ['idnumber' => $idnumber]) ?: false;
         }
-        return $this->coursecache[$klas_id];
+        return $this->coursecache[$idnumber];
     }
 
-    /** User lookup by idnumber then lowercased username, cached per run (false = not found). */
+    /**
+     * Look up a user by idnumber and fallback username.
+     *
+     * @param string $idnumber User idnumber.
+     * @return object|false
+     */
     private function get_user($idnumber) {
         global $DB;
         if (!array_key_exists($idnumber, $this->usercache)) {
@@ -226,7 +258,12 @@ class unenrollment_sync {
         return $this->usercache[$idnumber];
     }
 
-    /** Existing manual enrol instance for a course, cached per run. Never created here. */
+    /**
+     * Return the existing manual enrol instance for a course.
+     *
+     * @param object $course Moodle course record.
+     * @return object|false
+     */
     private function get_manual_instance($course) {
         global $DB;
         if (!array_key_exists($course->id, $this->instancecache)) {
