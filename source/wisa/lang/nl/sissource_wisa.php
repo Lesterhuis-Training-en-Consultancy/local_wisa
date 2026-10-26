@@ -32,6 +32,7 @@ $string['api_pass_desc'] = 'Wachtwoord voor authenticatie bij de WISA-API. Wordt
     'om de waarde zichtbaar te maken.';
 $string['api_url'] = 'WISA API-URL';
 $string['api_url_desc'] = 'Basis-URL van de WISA-API (bv. https://uwschool.schoolware.be/webwisad/bin/server.fcgi/QUERY/).';
+$string['api_url_https_required'] = 'Voer een geldig HTTPS-eindpunt voor WISA in, zonder aanmeldgegevens of queryparameters in de URL.';
 $string['api_user'] = 'API-gebruikersnaam';
 $string['api_user_desc'] = 'Gebruikersnaam voor authenticatie bij de WISA-API. Wordt versleuteld in de database ' .
     'opgeslagen. Een plaintextwaarde in config.php via <code>$CFG-&gt;forced_plugin_settings[\'sissource_wisa\']' .

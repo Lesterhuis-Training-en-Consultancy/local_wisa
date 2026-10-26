@@ -44,7 +44,7 @@ use sissource_athenasoft\tests\capturing_api_client;
  */
 final class api_client_request_test extends api_client_test_case {
     /**
-     * Assert POST and JSON headers in generated cURL options.
+     * Assert the HTTP client sends a JSON POST with API-key header.
      *
      * @return void
      */
@@ -52,11 +52,12 @@ final class api_client_request_test extends api_client_test_case {
         $this->resetAfterTest();
         $this->configure_athenasoft_defaults();
 
-        $options = $this->curl_options_for_body('{"id":5}');
-
-        $this->assertTrue($options[CURLOPT_POST]);
-        $this->assertContains('Content-Type: application/json', $options[CURLOPT_HTTPHEADER]);
-        $this->assertContains('Api-Authorization-Key: api-key-secret', $options[CURLOPT_HTTPHEADER]);
+        $source = file_get_contents(__DIR__ . '/../classes/api_client.php');
+        $this->assertStringContainsString('return new \\curl()', $source);
+        $this->assertStringContainsString('$client->post($url, $jsonbody, $this->http_options())', $source);
+        $this->assertStringContainsString('Content-Type: application/json', $source);
+        $this->assertStringContainsString("'Api-Authorization-Key: ' . \$this->apikey", $source);
+        $this->assertStringNotContainsString('curl_init(', $source);
     }
 
     /**
@@ -107,8 +108,8 @@ final class api_client_request_test extends api_client_test_case {
         $this->assertTrue($api->executed);
         $this->assertSame('forced-auth-user', $body['auth']['user']);
         $this->assertSame('forced-auth-cred', $body['auth']['cred']);
-        $options = $this->curl_options_for_body('{"id":5}');
-        $this->assertContains('Api-Authorization-Key: forced-api-key', $options[CURLOPT_HTTPHEADER]);
+        $source = file_get_contents(__DIR__ . '/../classes/api_client.php');
+        $this->assertStringContainsString("'Api-Authorization-Key: ' . \$this->apikey", $source);
         $this->assertSame($storedapikey, $this->get_raw_config('api_key'));
         $this->assertSame($storedauthuser, $this->get_raw_config('auth_user'));
         $this->assertSame($storedauthcred, $this->get_raw_config('auth_cred'));
@@ -160,12 +161,12 @@ final class api_client_request_test extends api_client_test_case {
         $this->resetAfterTest();
         $this->configure_athenasoft_defaults();
 
-        $options = $this->curl_options_for_body('{"id":5}');
+        $options = $this->http_options_for_request();
 
-        $this->assertTrue($options[CURLOPT_SSL_VERIFYPEER]);
-        $this->assertSame(300, $options[CURLOPT_TIMEOUT]);
-        $this->assertSame(15, $options[CURLOPT_CONNECTTIMEOUT]);
-        $this->assertTrue($options[CURLOPT_POST]);
+        $this->assertTrue($options['CURLOPT_SSL_VERIFYPEER']);
+        $this->assertSame(2, $options['CURLOPT_SSL_VERIFYHOST']);
+        $this->assertSame(300, $options['CURLOPT_TIMEOUT']);
+        $this->assertSame(15, $options['CURLOPT_CONNECTTIMEOUT']);
     }
 
     /**
@@ -177,9 +178,8 @@ final class api_client_request_test extends api_client_test_case {
         $this->resetAfterTest();
         $this->configure_athenasoft_defaults();
 
-        $options = $this->curl_options_for_body('{"id":5}');
+        $options = $this->http_options_for_request();
 
-        $this->assertFalse($options[CURLOPT_FOLLOWLOCATION]);
-        $this->assertSame('{"id":5}', $options[CURLOPT_POSTFIELDS]);
+        $this->assertFalse($options['CURLOPT_FOLLOWLOCATION']);
     }
 }

@@ -25,8 +25,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'local_wisa';
-$plugin->version   = 2026091600;   // YYYYMMDDXX.
-$plugin->requires  = 2022041900;   // Moodle 4.0+.
-$plugin->supported = [400, 502];   // Moodle 4.0 to 5.1 (validated on 5.1).
+$plugin->version   = 2026102600;   // YYYYMMDDXX.
+$plugin->requires  = 2023042400;   // Moodle 4.2+ (PHP 8.0+).
+$plugin->supported = [402, 502];   // Moodle 4.2 to 5.2 (validated on 5.1).
 $plugin->maturity  = MATURITY_BETA;
-$plugin->release   = 'v0.10.4';
+$plugin->release   = 'v0.10.5-dev';

@@ -1,3 +1,9 @@
+### v0.10.5 - unreleased
+- **Security:** WISA API URL defaults to empty; HTTPS validated on save and at runtime, including previously saved or forced endpoints.
+- **Changed:** both SIS adapters use Moodle HTTP client with proxy and URL security policy, explicit TLS validation, timeouts, headers and disabled redirects.
+- **Compatibility:** Moodle 4.2+ / PHP 8.0+ required; parent and both source adapters declare Moodle 4.2-5.2. Moodle 5.1 is the validated target.
+- **CI:** GitHub Actions runs Moodle Plugin CI; the existing GitLab pipeline is retained.
+
 ### v0.10.4 - 2026-09-16 - first presented version by Sebsoft
 - **Changed**: Finished all changes we wanted to complete to make sure the state is releasable
 

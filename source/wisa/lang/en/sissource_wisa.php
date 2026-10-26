@@ -31,6 +31,7 @@ $string['api_pass_desc'] = 'Password for WISA API authentication. Stored encrypt
     'precedence and makes this setting read-only. The interface provides no reveal control.';
 $string['api_url'] = 'WISA API URL';
 $string['api_url_desc'] = 'Base URL for the WISA API (e.g. https://yourschool.schoolware.be/webwisad/bin/server.fcgi/QUERY/).';
+$string['api_url_https_required'] = 'Enter a valid HTTPS WISA endpoint without embedded credentials or query parameters.';
 $string['api_user'] = 'API username';
 $string['api_user_desc'] = 'Username for WISA API authentication. Stored encrypted in the database. A plaintext ' .
     'config.php value at <code>$CFG-&gt;forced_plugin_settings[\'sissource_wisa\'][\'api_user\']</code> takes ' .

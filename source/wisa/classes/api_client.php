@@ -89,7 +89,7 @@ class api_client {
      * @return array|false Decoded JSON response or false on failure
      */
     public function fetch($queryname, $params = []) {
-        if (empty($this->apiurl) || empty($this->username) || empty($this->password)) {
+        if (!self::is_valid_api_url((string)$this->apiurl) || empty($this->username) || empty($this->password)) {
             logger::log('api_connect', 'system', 'redacted', 'fail', 'WISA_API_CONFIG_MISSING');
             return false;
         }
@@ -102,7 +102,7 @@ class api_client {
 
         [$response, $httpcode, $error] = $this->execute_request($fullurl);
 
-        if ($response === false) {
+        if ($response === false || $error !== '') {
             logger::log('api_fetch', 'system', 'redacted', 'fail', 'WISA_API_TRANSPORT_FAILED');
             return false;
         }
@@ -127,8 +127,24 @@ class api_client {
     }
 
     /**
+     * Accept only complete HTTPS endpoints without URL-embedded credentials.
+     *
+     * @param string $url Configured WISA base URL.
+     * @return bool Whether the endpoint is safe to use with API credentials.
+     */
+    public static function is_valid_api_url(string $url): bool {
+        if ($url === '' || preg_match('/[\x00-\x20\x7f]/', $url) || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+        $parts = parse_url($url);
+        return is_array($parts) && strtolower($parts['scheme'] ?? '') === 'https' &&
+            !empty($parts['host']) && !isset($parts['user']) && !isset($parts['pass']) &&
+            !isset($parts['query']) && !isset($parts['fragment']);
+    }
+
+    /**
      * Build a WISA query URL using the currently configured credentials and delta
-     * parameters. Kept separate from cURL so PHPUnit can characterize URL construction
+     * parameters. Kept separate from HTTP execution so PHPUnit can characterize URL construction
      * without contacting a real WISA endpoint.
      *
      * @param string $queryname e.g. 'MCVOD_C', 'MCVOD_LKR', 'MCVOD_STUD'
@@ -164,31 +180,43 @@ class api_client {
      * @return array [$response, $httpcode, $error]
      */
     protected function execute_request($fullurl) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $fullurl);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15);
-        // Grote (eerste) loads van MCVOD_INS/MCVOD_UIT kunnen >30s duren; ruim genomen.
-        curl_setopt($ch, CURLOPT_TIMEOUT, 180);
-        // Mimic a real browser.
-        $useragent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-            . '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36';
-        curl_setopt($ch, CURLOPT_USERAGENT, $useragent);
-        // Geen redirects volgen: de credentials staan in de query-string en mogen bij een
-        // (kwaadaardige) redirect niet mee-verhuizen naar een andere host.
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, false);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        $client = $this->create_http_client();
+        $client->setHeader([
             'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language: en-US,en;q=0.5',
         ]);
+        $response = $client->get($fullurl, [], $this->http_options());
+        $info = $client->get_info();
+        $error = $client->get_errno() ? 'transport error' : '';
+        return [$response, (int)($info['http_code'] ?? 0), $error];
+    }
 
-        $response = curl_exec($ch);
-        $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
+    /**
+     * Create a Moodle HTTP client (overridden by tests to avoid network access).
+     *
+     * @return \curl HTTP client.
+     */
+    protected function create_http_client(): \curl {
+        return new secure_curl();
+    }
 
-        return [$response, $httpcode, $error];
+    /**
+     * Moodle curl honours site proxy and URL security policy; override unsafe defaults.
+     *
+     * @return array cURL options keyed by name for Moodle's HTTP client.
+     */
+    protected function http_options(): array {
+        // Grote (eerste) loads van MCVOD_INS/MCVOD_UIT kunnen >30s duren; ruim genomen.
+        return [
+            'CURLOPT_SSL_VERIFYPEER' => true,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
+            'CURLOPT_CONNECTTIMEOUT' => 15,
+            'CURLOPT_TIMEOUT' => 180,
+            // Credentials are in the query string; never forward them on redirects.
+            'CURLOPT_FOLLOWLOCATION' => false,
+            'CURLOPT_USERAGENT' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                . '(KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        ];
     }
 
     /**

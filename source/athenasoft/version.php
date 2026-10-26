@@ -25,11 +25,11 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'sissource_athenasoft';
-$plugin->version   = 2026083101;
-$plugin->requires  = 2022041900;
-$plugin->supported = [400, 501];
+$plugin->version   = 2026102600;
+$plugin->requires  = 2023042400;
+$plugin->supported = [402, 502];
 $plugin->maturity  = MATURITY_ALPHA;
-$plugin->release   = 'v0.4.1';
+$plugin->release   = 'v0.10.5-dev';
 $plugin->dependencies = [
-    'local_wisa' => 2026083100,
+    'local_wisa' => 2026102600,
 ];

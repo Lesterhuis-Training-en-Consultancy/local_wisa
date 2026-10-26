@@ -33,11 +33,11 @@ if ($hassiteconfig) {
         get_string('settings_heading', 'sissource_wisa')
     ));
 
-    $settings->add(new admin_setting_configtext(
+    $settings->add(new \sissource_wisa\admin_setting_https_url(
         'sissource_wisa/api_url',
         get_string('api_url', 'sissource_wisa'),
         get_string('api_url_desc', 'sissource_wisa'),
-        'https://testcvoantwerpen.schoolware.be/webwisad/bin/server.fcgi/QUERY/',
+        '',
         PARAM_URL
     ));
 

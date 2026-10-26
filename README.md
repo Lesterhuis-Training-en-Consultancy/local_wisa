@@ -8,7 +8,8 @@ The parent plugin stays `local_wisa`; the first source adapter is
 - **Component:** `local_wisa`
 - **Install path:** `local/wisa/`
 - **Tested with:** Moodle 5.1
-- **Supported:** Moodle 4.0-5.2 (build 2022041900+)
+- **Supported:** Moodle 4.2-5.2 (build 2023042400+, PHP 8.0+); tested with Moodle 5.1. Moodle 4.0/4.1 are not supported because the source adapters use PHP 8 union types.
+- **CI:** GitHub Actions runs Moodle Plugin CI on Moodle 4.5 / PHP 8.2-8.3; the existing GitLab pipeline is retained. Other supported-version combinations still need validation before release.
 - **Status:** Beta. Validate every configuration change in dry-run mode first. The normal first-load path is approval in the UI, while the CLI is optional (see [Going live](#going-live)).
 - **Licence:** GNU GPL v3 or later (same as Moodle).
 
@@ -79,7 +80,7 @@ After installation, go to **Site administration → Plugins → Local plugins �
 | Setting | Default | Notes |
 |---|---|---|
 | Active SIS source | `WISA / Schoolware` | Selects the source adapter used by the generic sync manager. |
-| WISA API URL | `https://…schoolware.be/webwisad/bin/server.fcgi/QUERY/` | WISA source setting. Base URL up to `/QUERY/`; the adapter appends the query name. |
+| WISA API URL | _empty_ | Configure your school's HTTPS WISA endpoint, up to `/QUERY/`; the adapter appends the query name. An unset or non-HTTPS URL blocks requests. Existing configured HTTPS URLs are preserved; existing HTTP URLs must be changed to HTTPS before sync resumes. |
 | API username / password | _empty_ | The `_username_` / `_password_` query-param credentials. Both values are stored encrypted. |
 | Institute number | `123456` | The `instellingsnummer` to query. |
 | Role mapping | `{"student":"student","teacher":"editingteacher","cursist":"student","leerkracht":"editingteacher"}` | Parent setting `local_wisa/rolemap`: JSON mapping from generic source tokens to Moodle role shortnames. |

@@ -51,11 +51,17 @@ final class version_test extends \advanced_testcase {
         ];
         $versions = [];
         $dependencies = [];
+        $requires = [];
+        $supported = [];
 
         foreach ($paths as $name => $path) {
             $source = file_get_contents($path);
             preg_match('/\$plugin->version\s*=\s*(\d+)/', $source, $versionmatch);
             $versions[$name] = (int)$versionmatch[1];
+            preg_match('/\$plugin->requires\s*=\s*(\d+)/', $source, $requiresmatch);
+            $requires[$name] = (int)$requiresmatch[1];
+            preg_match('/\$plugin->supported\s*=\s*\[(\d+),\s*(\d+)\]/', $source, $supportedmatch);
+            $supported[$name] = [(int)$supportedmatch[1], (int)$supportedmatch[2]];
             preg_match("/'local_wisa'\s*=>\s*(\d+)/", $source, $dependencymatch);
             $dependencies[$name] = isset($dependencymatch[1]) ? (int)$dependencymatch[1] : null;
         }
@@ -67,5 +73,9 @@ final class version_test extends \advanced_testcase {
         $this->assertLessThanOrEqual($versions['parent'], $versions['athenasoft']);
         $this->assertLessThanOrEqual($versions['parent'], $dependencies['wisa']);
         $this->assertLessThanOrEqual($versions['parent'], $dependencies['athenasoft']);
+        foreach ($paths as $name => $path) {
+            $this->assertSame(2023042400, $requires[$name], $name . ' needs PHP 8-capable Moodle 4.2+');
+            $this->assertSame([402, 502], $supported[$name], $name . ' must match the advertised range');
+        }
     }
 }

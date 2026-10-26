@@ -198,16 +198,15 @@ abstract class api_client_test_case extends \advanced_testcase {
     }
 
     /**
-     * Build cURL options through the protected API on a real client.
+     * Build request options through the protected API on a real client.
      *
-     * @param string $jsonbody JSON request body.
      * @return array
      */
-    protected function curl_options_for_body(string $jsonbody): array {
+    protected function http_options_for_request(): array {
         $api = new api_client();
-        $method = new \ReflectionMethod(api_client::class, 'build_curl_options');
+        $method = new \ReflectionMethod(api_client::class, 'http_options');
         $method->setAccessible(true);
 
-        return $method->invoke($api, 'https://api-test.example.be/script', $jsonbody);
+        return $method->invoke($api);
     }
 }

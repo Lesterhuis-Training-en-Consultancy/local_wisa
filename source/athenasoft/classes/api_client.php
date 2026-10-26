@@ -159,43 +159,41 @@ class api_client {
      *
      * @param string $url Request URL.
      * @param string $jsonbody JSON request body.
-     * @return array Response body, HTTP status code and cURL error string.
+     * @return array Response body, HTTP status code and transport error marker.
      */
     protected function execute_request(string $url, string $jsonbody): array {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        foreach ($this->build_curl_options($url, $jsonbody) as $option => $value) {
-            curl_setopt($ch, $option, $value);
-        }
-
-        $response = curl_exec($ch);
-        $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        return [$response, $httpcode, $error];
+        $client = $this->create_http_client();
+        $client->setHeader([
+            'Content-Type: application/json',
+            'Api-Authorization-Key: ' . $this->apikey,
+        ]);
+        $response = $client->post($url, $jsonbody, $this->http_options());
+        $info = $client->get_info();
+        return [$response, (int)($info['http_code'] ?? 0), $client->get_errno() ? 'transport error' : ''];
     }
 
     /**
-     * Build cURL options for an AthenaSoft POST request.
+     * Create a Moodle HTTP client (overridden by tests to avoid network access).
      *
-     * @param string $url Request URL.
-     * @param string $jsonbody JSON request body.
-     * @return array cURL options.
+     * @return \curl HTTP client.
      */
-    protected function build_curl_options(string $url, string $jsonbody): array {
+    protected function create_http_client(): \curl {
+        return new \curl();
+    }
+
+    /**
+     * Moodle curl honours site proxy and URL security policy; override unsafe defaults.
+     *
+     * @return array cURL options keyed by name for Moodle's HTTP client.
+     */
+    protected function http_options(): array {
         return [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => 300,
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $jsonbody,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Api-Authorization-Key: ' . $this->apikey,
-            ],
+            'CURLOPT_SSL_VERIFYPEER' => true,
+            'CURLOPT_SSL_VERIFYHOST' => 2,
+            'CURLOPT_CONNECTTIMEOUT' => 15,
+            'CURLOPT_TIMEOUT' => 300,
+            // Auth credentials are in the JSON body; never forward them on redirects.
+            'CURLOPT_FOLLOWLOCATION' => false,
         ];
     }
 }

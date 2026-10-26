@@ -43,6 +43,20 @@ require_once($CFG->libdir . '/adminlib.php');
  */
 final class settings_test extends \advanced_testcase {
     /**
+     * New sites must not receive a real school's endpoint as the default.
+     *
+     * @return void
+     */
+    public function test_api_url_setting_defaults_to_empty_and_validates_https(): void {
+        $settings = $this->get_credential_settings();
+        $urlsetting = $settings['s_sissource_wisa_api_url'];
+        $this->assertInstanceOf(admin_setting_https_url::class, $urlsetting);
+        $this->assertSame('', $urlsetting->get_defaultsetting());
+        $this->assertTrue($urlsetting->validate('https://school.example.test/QUERY/'));
+        $this->assertIsString($urlsetting->validate('http://school.example.test/QUERY/'));
+    }
+
+    /**
      * Credential settings must use Moodle's encrypted password control.
      *
      * @return void
@@ -161,6 +175,7 @@ final class settings_test extends \advanced_testcase {
 
         $this->assertArrayHasKey('s_sissource_wisa_api_user', $settings);
         $this->assertArrayHasKey('s_sissource_wisa_api_pass', $settings);
+        $this->assertArrayHasKey('s_sissource_wisa_api_url', $settings);
         return $settings;
     }
 }
