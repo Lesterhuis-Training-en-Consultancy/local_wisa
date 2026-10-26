@@ -49,14 +49,15 @@ final class http_transport_test extends \advanced_testcase {
         $this->assertSame('', $setting->get_defaultsetting());
         $this->assertTrue($setting->validate(''));
         $this->assertTrue($setting->validate('https://school.example.test/QUERY/'));
-        foreach ([
+        $unsafeurls = [
             'http://school.example.test/QUERY/',
             'https://user:pass@school.example.test/QUERY/',
             'https://school.example.test/QUERY/?x=1',
             'https://school.example.test/QUERY/#fragment',
             "https://school.example.test.evil/QUERY/\r\n",
             'not-a-url',
-        ] as $unsafe) {
+        ];
+        foreach ($unsafeurls as $unsafe) {
             $this->assertFalse(api_client::is_valid_api_url($unsafe));
             $this->assertIsString($setting->validate($unsafe));
         }
