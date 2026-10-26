@@ -27,90 +27,8 @@ namespace sissource_wisa;
 
 defined('MOODLE_INTERNAL') || die();
 
-/**
- * A Moodle curl spy with a canned response.
- */
-class wisa_http_spy extends \curl {
-    /** @var array Headers supplied by the adapter. */
-    public $headers = [];
-    /** @var array Options supplied by the adapter. */
-    public $options = [];
-    /** @var string URL supplied by the adapter. */
-    public $url = '';
-    /** @var int Simulated curl error code. */
-    public $errornumber = 0;
-    /** @var string|false Simulated response. */
-    public $responsebody = '[]';
-    /** @var int Simulated HTTP status. */
-    public $statuscode = 200;
-
-    /**
-     * Capture headers.
-     *
-     * @param array $header Headers.
-     * @return void
-     */
-    public function setHeader($header) {
-        $this->headers = $header;
-    }
-
-    /**
-     * Capture a GET without contacting a real server.
-     *
-     * @param string $url Request URL.
-     * @param array $params Optional parameters.
-     * @param array $options cURL options.
-     * @return string|false Response body.
-     */
-    public function get($url, $params = [], $options = []) {
-        $this->url = $url;
-        $this->options = $options;
-        return $this->responsebody;
-    }
-
-    /**
-     * Return canned status.
-     *
-     * @return array HTTP info.
-     */
-    public function get_info() {
-        return ['http_code' => $this->statuscode];
-    }
-
-    /**
-     * Return canned transport error.
-     *
-     * @return int Error number.
-     */
-    public function get_errno() {
-        return $this->errornumber;
-    }
-}
-
-/**
- * WISA client using the spy instead of a live HTTP client.
- */
-class wisa_http_test_client extends api_client {
-    /** @var wisa_http_spy Spy HTTP client. */
-    public $spy;
-
-    /**
-     * Create a client with a spy.
-     */
-    public function __construct() {
-        parent::__construct();
-        $this->spy = new wisa_http_spy();
-    }
-
-    /**
-     * Return spy client.
-     *
-     * @return \curl HTTP client.
-     */
-    protected function create_http_client(): \curl {
-        return $this->spy;
-    }
-}
+require_once(__DIR__ . '/fixtures/wisa_http_spy.php');
+require_once(__DIR__ . '/fixtures/wisa_http_test_client.php');
 
 /**
  * WISA HTTPS and Moodle HTTP transport regression tests.
@@ -131,9 +49,14 @@ final class http_transport_test extends \advanced_testcase {
         $this->assertSame('', $setting->get_defaultsetting());
         $this->assertTrue($setting->validate(''));
         $this->assertTrue($setting->validate('https://school.example.test/QUERY/'));
-        foreach (['http://school.example.test/QUERY/', 'https://user:pass@school.example.test/QUERY/',
-            'https://school.example.test/QUERY/?x=1', 'https://school.example.test/QUERY/#fragment',
-            "https://school.example.test.evil/QUERY/\r\n", 'not-a-url'] as $unsafe) {
+        foreach ([
+            'http://school.example.test/QUERY/',
+            'https://user:pass@school.example.test/QUERY/',
+            'https://school.example.test/QUERY/?x=1',
+            'https://school.example.test/QUERY/#fragment',
+            "https://school.example.test.evil/QUERY/\r\n",
+            'not-a-url',
+        ] as $unsafe) {
             $this->assertFalse(api_client::is_valid_api_url($unsafe));
             $this->assertIsString($setting->validate($unsafe));
         }
