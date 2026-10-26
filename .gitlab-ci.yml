@@ -9,3 +9,30 @@ variables:
   REPOURL: "https://github.com/Lesterhuis-Training-en-Consultancy/local_wisa"
   REPOSYS: "git"
   IGNORE_CAMP: "true"
+
+# Publish this review branch through the same PUSHLOCATION used by the shared release job.
+# Never rename it to main, push tags, or force-update an existing GitHub branch.
+publish.github.review:
+  stage: deploy
+  image: moodlehq/moodle-php-apache:8.1
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "feature/github-issues-1-3-4-5"'
+    - when: never
+  script:
+    - |
+      set -eu
+      : "${PUSHLOCATION:?PUSHLOCATION is required to publish the review branch}"
+      target=refs/heads/feature/github-issues-1-3-4-5
+      test "$(git rev-parse HEAD)" = "$CI_COMMIT_SHA"
+      git remote add github "$PUSHLOCATION"
+      remote_sha=$(git ls-remote github "$target" | cut -f1)
+      if [ -n "$remote_sha" ]; then
+        git fetch --no-tags github "$target"
+        if ! git merge-base --is-ancestor FETCH_HEAD HEAD; then
+          echo 'GitHub review branch has diverged; refusing to overwrite it.'
+          exit 1
+        fi
+      fi
+      git push github "HEAD:$target"
+      test "$(git ls-remote github "$target" | cut -f1)" = "$CI_COMMIT_SHA"
+      echo "Published $CI_COMMIT_SHA to the GitHub review branch."
