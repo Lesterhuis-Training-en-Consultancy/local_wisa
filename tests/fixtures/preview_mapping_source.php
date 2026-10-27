@@ -25,8 +25,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Source double that fails immediately if preview code performs source work.
  *

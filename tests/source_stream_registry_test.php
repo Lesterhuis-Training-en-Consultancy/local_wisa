@@ -25,8 +25,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Verifies source-free stream-descriptor validation.
  *

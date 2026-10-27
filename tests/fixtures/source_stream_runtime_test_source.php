@@ -25,8 +25,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Call-counting stream source used by parent runtime tests.
  *

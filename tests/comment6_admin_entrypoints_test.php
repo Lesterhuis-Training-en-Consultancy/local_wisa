@@ -25,8 +25,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Verifies secure provisioning and force-full administration wiring.
  *

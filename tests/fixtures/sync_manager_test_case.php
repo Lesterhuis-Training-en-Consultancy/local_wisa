@@ -23,8 +23,6 @@
  */
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Shared sync manager test fixture.
  *

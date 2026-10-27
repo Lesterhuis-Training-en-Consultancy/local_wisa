@@ -25,8 +25,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Tests version metadata without executing version.php files.
  *

@@ -25,8 +25,6 @@
 
 namespace sissource_athenasoft;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Tests AthenaSoft language string browser-rendering contracts.
  *

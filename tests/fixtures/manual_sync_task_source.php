@@ -25,8 +25,6 @@
 
 namespace sissource_manualsyncfixture;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Fixture source for manual sync task outcome tests.
  *

@@ -84,15 +84,6 @@ final class course_sync_provisioning_gate_test extends course_sync_test_case {
         $this->assertTrue($sync->has_blocking_provisions());
     }
 
-    /**
-     * Return durable provision states that must prevent existing-course updates.
-     *
-     * @return array Provision status test cases.
-     */
-    public static function blocking_provision_status_provider(): array {
-        return parent::blocking_provision_status_provider();
-    }
-
     public function test_disabled_provisioning_still_blocks_new_course_with_pending_provision(): void {
         global $DB;
 

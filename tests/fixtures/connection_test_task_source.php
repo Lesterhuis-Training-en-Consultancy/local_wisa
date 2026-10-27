@@ -25,8 +25,6 @@
 
 namespace sissource_connectiontestfixture;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Source fixture that records construction and exact request batches.
  *

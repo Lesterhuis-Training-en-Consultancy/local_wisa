@@ -24,8 +24,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Injects a capturing synchronization manager into the force-full task.
  *

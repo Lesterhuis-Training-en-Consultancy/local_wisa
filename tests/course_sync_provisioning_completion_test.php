@@ -86,15 +86,6 @@ final class course_sync_provisioning_completion_test extends course_sync_test_ca
         $this->assertSame(1, $stats->coursefail);
     }
 
-    /**
-     * Return successful terminal provision states.
-     *
-     * @return array Provision status test cases.
-     */
-    public static function completed_provision_status_provider(): array {
-        return parent::completed_provision_status_provider();
-    }
-
     public function test_completed_provision_with_destination_skips_new_course_creation(): void {
         global $DB, $USER;
 

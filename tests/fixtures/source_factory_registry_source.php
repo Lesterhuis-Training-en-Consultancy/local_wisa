@@ -25,8 +25,6 @@
 
 namespace sissource_fixture;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Source fixture that records if parent code constructs it.
  *

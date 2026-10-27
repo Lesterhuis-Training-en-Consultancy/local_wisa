@@ -24,8 +24,6 @@
 
 namespace local_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Captures force-full synchronization arguments without source work.
  *

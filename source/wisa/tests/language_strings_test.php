@@ -25,8 +25,6 @@
 
 namespace sissource_wisa;
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Tests WISA field mapping help in supported languages.
  *
@@ -81,7 +79,9 @@ final class language_strings_test extends \advanced_testcase {
 
         $this->assertArrayHasKey('fieldmap', $string);
         $this->assertArrayHasKey('fieldmap_desc', $string);
-        foreach (['course', 'user', 'enrolment', 'unenrolment', 'templatekey', 'profile_field_&lt;shortname&gt;', 'address', 'role'] as $target) {
+        $targets = ['course', 'user', 'enrolment', 'unenrolment', 'templatekey',
+            'profile_field_&lt;shortname&gt;', 'address', 'role'];
+        foreach ($targets as $target) {
             $this->assertStringContainsString($target, $string['fieldmap_desc']);
         }
         $this->assertStringContainsString('user (idnumber, username,', $string['fieldmap_desc']);
