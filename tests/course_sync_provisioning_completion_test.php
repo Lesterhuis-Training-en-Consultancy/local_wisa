@@ -39,6 +39,7 @@ use local_wisa\tests\sis_fixtures;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync\course_sync
  */
 final class course_sync_provisioning_completion_test extends course_sync_test_case {
     /**
@@ -85,6 +86,17 @@ final class course_sync_provisioning_completion_test extends course_sync_test_ca
         $this->assertTrue($sync->has_blocking_provisions());
         $this->assertSame(1, $stats->coursefail);
     }
+
+    /**
+     * Expose the inherited provider to Moodle's per-file code checker.
+     *
+     * @return array Provision status test cases.
+     * @codingStandardsIgnoreStart Generic.CodeAnalysis.UselessOverridingMethod.Found
+     */
+    public static function completed_provision_status_provider(): array {
+        return parent::completed_provision_status_provider();
+    }
+    // @codingStandardsIgnoreEnd
 
     public function test_completed_provision_with_destination_skips_new_course_creation(): void {
         global $DB, $USER;

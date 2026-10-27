@@ -32,6 +32,8 @@ namespace local_wisa;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\credential_resolver
+ * @covers \local_wisa\credential_migrator
  */
 final class credential_resolver_test extends \advanced_testcase {
     /** @var bool Whether forced settings existed before the test. */

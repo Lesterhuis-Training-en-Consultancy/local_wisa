@@ -34,6 +34,7 @@ namespace local_wisa {
      * @category   test
      * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
      * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+     * @covers \local_wisa\source_factory
      */
     final class source_factory_registry_test extends \advanced_testcase {
         /**

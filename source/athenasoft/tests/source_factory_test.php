@@ -32,6 +32,7 @@ require_once(__DIR__ . '/fixtures/source_test_case.php');
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\source_factory
  */
 final class source_factory_test extends source_test_case {
     public function test_factory_returns_athenasoft_adapter_when_selected(): void {

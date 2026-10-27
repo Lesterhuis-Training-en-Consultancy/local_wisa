@@ -36,6 +36,7 @@ require_once(__DIR__ . '/fixtures/source_stream_migration_conflict_setting_store
  * @category   test
  * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\source_stream_migrator
  */
 final class source_stream_migrator_test extends \advanced_testcase {
     /**

@@ -39,6 +39,7 @@ require_once($CFG->libdir . '/adminlib.php');
  * @group      local_wisa
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversNothing
  */
 final class settings_test extends \advanced_testcase {
     /**

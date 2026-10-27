@@ -43,6 +43,8 @@ use local_wisa\tests\fake_api_client;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync_manager
+ * @covers \local_wisa\task\preview_task
  */
 final class sync_manager_preview_test extends sync_manager_test_case {
     /**

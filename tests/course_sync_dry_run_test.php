@@ -39,6 +39,7 @@ use local_wisa\tests\sis_fixtures;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync\course_sync
  */
 final class course_sync_dry_run_test extends course_sync_test_case {
     public function test_enabled_keyed_course_dry_run_logs_intent_without_writes(): void {

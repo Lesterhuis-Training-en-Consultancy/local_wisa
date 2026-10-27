@@ -35,6 +35,8 @@ require_once(__DIR__ . '/fixtures/provisioning_service_test_case.php');
  * @package    local_wisa
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\provisioning_service
+ * @covers \local_wisa\task\provision_course_task
  */
 final class provisioning_service_execution_test extends provisioning_service_test_case {
     /**

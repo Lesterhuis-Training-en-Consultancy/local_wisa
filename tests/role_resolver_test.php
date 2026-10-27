@@ -31,6 +31,7 @@ namespace local_wisa;
  * @package    local_wisa
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\role_resolver
  */
 final class role_resolver_test extends \advanced_testcase {
     /**

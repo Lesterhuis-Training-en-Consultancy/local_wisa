@@ -36,6 +36,7 @@ require_once(__DIR__ . '/fixtures/source_stream_runtime_test_source.php');
  * @category   test
  * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync_manager
  */
 final class source_stream_runtime_test extends \advanced_testcase {
     /**

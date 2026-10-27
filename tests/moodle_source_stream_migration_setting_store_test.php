@@ -32,6 +32,7 @@ namespace local_wisa;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\moodle_source_stream_migration_setting_store
  */
 final class moodle_source_stream_migration_setting_store_test extends \advanced_testcase {
     /**

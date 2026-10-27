@@ -39,6 +39,7 @@ require_once($CFG->libdir . '/upgradelib.php');
  * @package    sissource_athenasoft
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversNothing
  */
 final class upgrade_test extends \advanced_testcase {
     /** @var bool Whether forced settings existed before the test. */

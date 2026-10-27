@@ -39,6 +39,7 @@ use local_wisa\tests\sis_fixtures;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync\course_sync
  */
 final class course_sync_provisioning_gate_test extends course_sync_test_case {
     /**
@@ -83,6 +84,17 @@ final class course_sync_provisioning_gate_test extends course_sync_test_case {
         $this->assertSame('STATE-FIRST-ORIGINAL', $unchanged->shortname);
         $this->assertTrue($sync->has_blocking_provisions());
     }
+
+    /**
+     * Expose the inherited provider to Moodle's per-file code checker.
+     *
+     * @return array Provision status test cases.
+     * @codingStandardsIgnoreStart Generic.CodeAnalysis.UselessOverridingMethod.Found
+     */
+    public static function blocking_provision_status_provider(): array {
+        return parent::blocking_provision_status_provider();
+    }
+    // @codingStandardsIgnoreEnd
 
     public function test_disabled_provisioning_still_blocks_new_course_with_pending_provision(): void {
         global $DB;

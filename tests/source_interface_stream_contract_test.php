@@ -32,6 +32,7 @@ namespace local_wisa;
  * @category   test
  * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversNothing
  */
 final class source_interface_stream_contract_test extends \advanced_testcase {
     /**

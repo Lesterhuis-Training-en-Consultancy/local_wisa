@@ -40,6 +40,7 @@ use sissource_athenasoft\tests\athenasoft_fixtures;
  * @category   test
  * @copyright  2026 Sebsoft.nl <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \sissource_athenasoft\source
  */
 final class source_stream_test extends source_test_case {
     /**

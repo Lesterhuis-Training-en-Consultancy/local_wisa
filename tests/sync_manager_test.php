@@ -44,6 +44,7 @@ use local_wisa\tests\sis_fixtures;
  * @category   test
  * @copyright  Sebsoft.nl  <helpdesk@sebsoft.nl>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers \local_wisa\sync_manager
  */
 final class sync_manager_test extends sync_manager_test_case {
     /**
